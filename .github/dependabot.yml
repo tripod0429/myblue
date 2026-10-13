@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Proposes bumps for the pinned actions in .github/workflows/.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

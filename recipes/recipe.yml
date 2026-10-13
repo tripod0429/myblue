@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+# `name` must match the GitHub repo name and the constants in
+# files/system/usr/libexec/secureblue/verify-provenance.sh (the build checks).
+name: myblue
+description: Personal layer on top of secureblue
+
+# Match the image you run today (see `rpm-ostree status`).
+base-image: ghcr.io/secureblue/cosmic-main-hardened
+image-version: latest
+
+# Same as secureblue's own recipes: don't add cosign or nushell to the image.
+cosign-version: none
+nushell-version: none
+
+# Every module is pinned to the modules image secureblue pins in
+# recipes/common/common-modules.yml. Bump it when they do.
+modules:
+  - type: dnf
+    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    install:
+      packages:
+        # Doom Emacs runs inside Bubblejail, which sees the host's /usr
+        # but not Homebrew, so its tools come from Fedora.
+        - emacs
+        - ripgrep
+        - fd-find
+        # Build toolchain for GHC/cabal (ghcup) and Emacs native modules.
+        - gcc-c++
+        - make
+        - cmake
+        - libtool
+        - gmp-devel
+        - zenity
+
+  # files/system/ is copied to / :
+  # - Trivalent managed policies (correct SELinux labels, no restorecon)
+  # - myblue-setup, the one-time setup helper
+  # - verify-provenance.sh, replacing secureblue's so updates check
+  #   this repo's provenance instead of secureblue's
+  - type: files
+    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    files:
+      - source: system
+        destination: /
+
+  - type: script
+    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    snippets:
+      # Fail the build instead of shipping an update check that can't work.
+      - |
+        for tool in rpm-ostree jq crane slsa-verifier; do
+          command -v "$tool" >/dev/null || { echo "missing in base image: $tool" >&2; exit 1; }
+        done
+      - chmod 0755 /usr/libexec/secureblue/verify-provenance.sh /usr/bin/myblue-setup
+      # Unsigned images I pull with podman. `ujust audit-secureblue` warns
+      # about these two scopes; that is expected.
+      - |
+        jq '.transports.docker += {
+              "docker.io/cloudron/base": [{"type": "insecureAcceptAnything"}],
+              "docker.io/selenium/standalone-chromium": [{"type": "insecureAcceptAnything"}]
+            }' /etc/containers/policy.json > /tmp/policy.json
+        cat /tmp/policy.json > /etc/containers/policy.json
+        rm /tmp/policy.json
+
+  # Installs cosign.pub and adds this image to policy.json, so rpm-ostree
+  # only accepts images signed with your key.
+  - type: signing
+    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a

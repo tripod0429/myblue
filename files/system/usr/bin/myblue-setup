@@ -1,0 +1,48 @@
+#!/usr/bin/bash
+# One-time secureblue setup for a new machine.
+# Every step asks first, so it is safe to re-run. Run it after the first
+# `chezmoi apply`, because the bash lockdown at the end freezes ~/.bashrc.
+set -euo pipefail
+
+ask() {
+  local answer
+  read -rp "$1 [y/N] " answer
+  [[ $answer == [yY]* ]]
+}
+
+step() {
+  if ask "Run 'ujust $*'?"; then
+    ujust "$@" || printf "'ujust %s' failed, continuing\n" "$*" >&2
+  fi
+  printf '\n'
+}
+
+step set-kargs-hardening
+step setup-usbguard
+step set-container-userns on
+step set-unconfined-userns on
+step flatpak-permissions-lockdown
+step harden-flatpak
+step install-vpn
+step install-steam
+
+printf 'The next two are toggles: running them again turns them back off.\n\n'
+step toggle-mac-randomization
+
+cat <<'EOF'
+Trivalent: add these JavaScript JIT exceptions by hand:
+
+  [*.]notesnook.com
+  [*.]tuta.com
+  [*.]peergos.net
+  app.element.io
+  discord.com
+  chrome-extension://mendokngpagmkejfpmeellpppjgbpdaj
+  chrome-extension://nngceckbapebfimnlniiiahkandclblb
+
+Bash environment lockdown makes ~/.bashrc and ~/.bash_profile unwritable,
+so chezmoi can't update them while it is on. Toggle it off, run
+`chezmoi apply`, and toggle it back on when you change them.
+
+EOF
+step toggle-bash-environment-lockdown

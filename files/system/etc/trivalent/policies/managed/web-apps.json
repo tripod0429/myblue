@@ -1,0 +1,19 @@
+{
+  "WebAppInstallForceList": [
+    {
+      "url": "https://www.newsblur.com/",
+      "default_launch_container": "window",
+      "create_desktop_shortcut": true
+    },
+    {
+      "url": "https://account.proton.me/",
+      "default_launch_container": "window",
+      "create_desktop_shortcut": true
+    },
+    {
+      "url": "https://web.whatsapp.com/",
+      "default_launch_container": "window",
+      "create_desktop_shortcut": true
+    }
+  ]
+}

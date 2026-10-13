@@ -1,0 +1,146 @@
+name: build
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # daily, a few hours after secureblue's 06:00 UTC build
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch: # manual rebuild; deliberately takes no inputs
+
+permissions: {}
+
+# Never build two images at once: the digest read after the push must be
+# the one this run produced.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and sign
+    runs-on: ubuntu-latest # standard runner; larger runners are billed
+    environment: release # holds SIGNING_SECRET, limited to main
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      image: ${{ steps.recipe.outputs.image }}
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read recipe
+        id: recipe
+        run: |
+          {
+            echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$(yq -r '.name' recipes/recipe.yml)"
+            echo "base=$(yq -r '."base-image"' recipes/recipe.yml)"
+            echo "base_tag=$(yq -r '."image-version"' recipes/recipe.yml)"
+          } >> "$GITHUB_OUTPUT"
+
+      # The update check on your machine must look for the image this run
+      # builds, from this repo. Catches a renamed repo or recipe.
+      - name: Check verify-provenance.sh
+        env:
+          IMAGE: ${{ steps.recipe.outputs.image }}
+        run: |
+          f=files/system/usr/libexec/secureblue/verify-provenance.sh
+          if ! grep -qx "readonly IMAGE=${IMAGE}" "$f" ||
+             ! grep -qx "readonly SOURCE=github.com/${GITHUB_REPOSITORY,,}" "$f"; then
+            echo "::error::$f must point at ${IMAGE} and github.com/${GITHUB_REPOSITORY,,}"
+            exit 1
+          fi
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+        with:
+          cosign-release: v2.6.0
+
+      - name: Install slsa-verifier
+        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+      - name: Install regctl
+        uses: regclient/actions/regctl-installer@1b705e32d40851370799ea5814e83d0a5f6a70dc # v0.1.0
+
+      # Same check secureblue's own pipeline does on its base images: the
+      # base must be signed with secureblue's key (vendored in keys/) and
+      # built by secureblue's workflow from their `live` branch.
+      - name: Verify secureblue base image
+        id: base
+        env:
+          BASE: ${{ steps.recipe.outputs.base }}
+          BASE_TAG: ${{ steps.recipe.outputs.base_tag }}
+        run: |
+          digest=$(regctl image digest "${BASE}:${BASE_TAG}")
+          cosign verify --key keys/secureblue.pub "${BASE}@${digest}" > /dev/null
+          slsa-verifier verify-image \
+            --source-uri github.com/secureblue/secureblue \
+            --source-branch live \
+            "${BASE}@${digest}"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          # As in secureblue's pipeline: let BlueBuild's verify_install
+          # reinstall slsa-verifier without clashing with this copy.
+          rm -rf ~/.slsa/
+
+      - name: Build, sign and push
+        uses: blue-build/github-action@c295af864f2802fc6aea227507af43d35823db81 # v1.13.0
+        with:
+          # Same CLI version as secureblue, verified before use. Bump it when they do.
+          cli_version: v0.9.37
+          verify_install: true
+          retry_push_count: 3
+          recipe: recipe.yml
+          cosign_private_key: ${{ secrets.SIGNING_SECRET }}
+          registry_token: ${{ github.token }}
+          skip_checkout: true
+          maximize_build_space: true
+
+      - name: Read pushed digest
+        id: digest
+        env:
+          IMAGE: ${{ steps.recipe.outputs.image }}
+          TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$TOKEN" | regctl registry login ghcr.io --user "$GITHUB_ACTOR" --pass-stdin
+          echo "digest=$(regctl image digest "${IMAGE}:latest")" >> "$GITHUB_OUTPUT"
+
+      # BlueBuild looks up the base digest again when it builds. Fail if
+      # secureblue pushed a new image in between, so the unverified build
+      # gets no provenance and your machine won't take it.
+      - name: Check base image of the build
+        env:
+          IMAGE: ${{ steps.recipe.outputs.image }}
+          DIGEST: ${{ steps.digest.outputs.digest }}
+          VERIFIED: ${{ steps.base.outputs.digest }}
+        run: |
+          built_on=$(regctl image config "${IMAGE}@${DIGEST}" |
+            jq -r '.config.Labels["org.opencontainers.image.base.digest"]')
+          if [[ $built_on != "$VERIFIED" ]]; then
+            echo "::error::built on base ${built_on}, but verified ${VERIFIED}"
+            exit 1
+          fi
+
+  # Signed statement from GitHub that this digest was built by this
+  # workflow, from this repo and branch. verify-provenance.sh on your
+  # machine checks it before every update.
+  provenance:
+    name: Provenance
+    needs: build
+    permissions:
+      actions: read
+      id-token: write
+      packages: write
+    # Must be referenced by tag, not commit SHA: the generator checks its own ref.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
+    with:
+      image: ${{ needs.build.outputs.image }}
+      digest: ${{ needs.build.outputs.digest }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
