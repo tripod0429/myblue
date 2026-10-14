@@ -44,11 +44,15 @@ modules:
       - source: system
         destination: /
 
-  # Build-time checks, permissions and policy.json additions. A script file
-  # rather than snippets: the module runs each line of a snippet on its own.
+  # Script files rather than snippets: the module runs each line of a
+  # snippet on its own.
+  # - install-proton-bridge.sh: latest Proton Mail Bridge, from Proton's
+  #   signed RPM (no dnf repo exists), checked against files/keys/
+  # - myblue-image-setup.sh: build-time checks, permissions, policy.json
   - type: script
     source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
     scripts:
+      - install-proton-bridge.sh
       - myblue-image-setup.sh
 
   # Installs cosign.pub and adds this image to policy.json, so rpm-ostree

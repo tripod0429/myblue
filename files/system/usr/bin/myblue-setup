@@ -40,6 +40,14 @@ Trivalent: add these JavaScript JIT exceptions by hand:
   chrome-extension://mendokngpagmkejfpmeellpppjgbpdaj
   chrome-extension://nngceckbapebfimnlniiiahkandclblb
 
+Proton Mail Bridge: open it from the app menu, sign in, then in its
+settings turn on "Open on startup" and turn off "Automatic updates".
+The image keeps Bridge up to date; Bridge's own updates would run from
+your home folder instead.
+
+Peergos: open it and turn on "Start on boot" in its settings, if it
+isn't on already.
+
 Bash environment lockdown makes ~/.bashrc and ~/.bash_profile unwritable,
 so chezmoi can't update them while it is on. Toggle it off, run
 `chezmoi apply`, and toggle it back on when you change them.

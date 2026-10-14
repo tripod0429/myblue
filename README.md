@@ -21,6 +21,8 @@ past it would take building from `main`, which needs your GitHub account
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
 | `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` |
+| `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge install, checks, `policy.json` additions |
+| `files/keys/proton-bridge.asc` | Proton's Bridge signing key, for checking the Bridge RPM at build time |
 | `.github/workflows/build.yml` | Daily build, base-image check, signing, provenance |
 | `.github/dependabot.yml` | Weekly bumps for the pinned actions |
 | `bootstrap/trust-myblue.sh` | One-time: lets stock secureblue accept your image |
@@ -176,6 +178,23 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
 On a fresh machine, install stock secureblue first, then start at step 2.
 That way secureblue's first-boot cleanup has already run.
 
+## Proton Mail Bridge
+
+Proton has no dnf repo for Bridge, only a signed RPM.
+`files/scripts/install-proton-bridge.sh` reads Proton's version feed,
+downloads the current RPM, requires a valid signature from the key in
+`files/keys/` (fingerprint `D51E 64D3 E63E DC3E EF78 64CE E2C7 5D68
+E623 4B07`), and installs it. Each daily build picks up the latest Bridge.
+
+Autostart is Bridge's own *Open on startup* setting, not a service you
+write: it adds an XDG autostart entry (`protonmail-bridge --no-window`),
+which COSMIC runs as a systemd user unit and lists under *Startup
+Applications*. Don't add Bridge there by hand: that copy starts without
+`--no-window`. Turn off Bridge's *Automatic updates*: its launcher would
+otherwise run newer versions it downloads into your home folder instead
+of the image's. `myblue-setup` lists both settings, and Peergos's
+equivalent, *Start on boot*.
+
 ## Day to day
 
 - **Change the config:** make a signed commit (your `.gitconfig` signs by
@@ -188,6 +207,10 @@ That way secureblue's first-boot cleanup has already run.
   its key. Nothing gets built or published, so your machine stays on its
   current image. Only update `keys/secureblue.pub` once you've confirmed
   the rotation through secureblue's official channels.
+- **The build fails in `install-proton-bridge.sh`:** either the download
+  failed its signature check, or Proton changed its feed or rotated its
+  key. Nothing is published. Only replace `files/keys/proton-bridge.asc`
+  once Proton has announced the new key on its official site.
 - **Updates stop arriving:** `journalctl -u rpm-ostreed-automatic` shows
   why. secureblue also warns you once the system is a week out of date.
 - **Following secureblue's BlueBuild versions:** Dependabot can't bump the
