@@ -44,6 +44,13 @@ modules:
       - source: system
         destination: /
 
+  # files/justfiles/ is added to ujust: add-luks-fido2-key enrolls another
+  # FIDO2 key for disk unlock (secureblue's setup-luks-fido2-unlock replaces
+  # the enrolled key instead).
+  - type: justfiles
+    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    validate: true
+
   # Script files rather than snippets: the module runs each line of a
   # snippet on its own.
   # - install-proton-bridge.sh: latest Proton Mail Bridge, from Proton's

@@ -20,7 +20,8 @@ past it would take building from `main`, which needs your GitHub account
 | File | Purpose |
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
-| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` |
+| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh`, `luks-add-fido2-key.sh` |
+| `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key` |
 | `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge install, checks, `policy.json` additions |
 | `files/keys/proton-bridge.asc` | Proton's Bridge signing key, for checking the Bridge RPM at build time |
 | `.github/workflows/build.yml` | Daily build plus an hourly check for a new secureblue base; base-image check, signing, provenance |
@@ -217,6 +218,12 @@ equivalent, *Start on boot*.
   nothing new show the build as skipped. The machine still installs once a
   day (04:00) or at boot; for an urgent fix, run `ujust update-system` once
   the build is done, then reboot.
+- **Another FIDO2 key for disk unlock:** `ujust setup-luks-fido2-unlock`
+  wipes every enrolled FIDO2 key before enrolling, so use it only for the
+  first key. For each extra key, plug in only that key and run
+  `ujust add-luks-fido2-key`. It asks for the disk passphrase or recovery
+  key, then the key's current PIN; the PIN isn't changed and nothing on the
+  key is touched. Reboot with each key on its own to check it unlocks.
 - **Updates stop arriving:** `journalctl -u rpm-ostreed-automatic` shows
   why. secureblue also warns you once the system is a week out of date.
 - **Following secureblue's BlueBuild versions:** Dependabot can't bump the
