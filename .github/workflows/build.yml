@@ -107,14 +107,17 @@ jobs:
       digest: ${{ steps.digest.outputs.digest }}
     steps:
       # secureblue's allowlist at 39502947d5612c1fb674cf5cdaff9f6a3ab271c8,
-      # with GitHub's API and Proton added for this build.
+      # with GitHub's API and Proton added for this build. In order: Ubuntu
+      # packages; GitHub Actions, release binaries and verification keys;
+      # container registries and BlueBuild; package repositories and Proton
+      # Mail Bridge; Fedora mirrors. Keep comments out of the list itself:
+      # Harden-Runner reads every word in it as a domain.
       - name: Restrict runner egress
         uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
         with:
           egress-policy: block
           disable-telemetry: true
           allowed-endpoints: >
-            # Ubuntu packages
             _https._tcp.archive.ubuntu.com:443
             archive.ubuntu.com:443
             _https._tcp.security.ubuntu.com:443
@@ -125,16 +128,12 @@ jobs:
             motd.ubuntu.com:443
             _https._tcp.esm.ubuntu.com:443
             esm.ubuntu.com:443
-
-            # GitHub Actions, release binaries and verification keys
             github.com:443
             api.github.com:443
             release-assets.githubusercontent.com:443
             raw.githubusercontent.com:443
             tuf-repo-cdn.sigstore.dev:443
             rekor.sigstore.dev:443
-
-            # Container registries and BlueBuild
             quay.io:443
             cdn01.quay.io:443
             ghcr.io:443
@@ -144,8 +143,6 @@ jobs:
             production.cloudfront.docker.com:443
             registry-1.docker.io:443
             auth.docker.io:443
-
-            # Package repositories and Proton Mail Bridge
             copr.fedorainfracloud.org:443
             download.copr.fedorainfracloud.org:443
             negativo17.org:443
@@ -156,8 +153,6 @@ jobs:
             nvidia.github.io:443
             keyserver.ubuntu.com:443
             proton.me:443
-
-            # Fedora mirrors, following secureblue's allowlist
             abqix.mm.fcix.net:443
             cfhcable.mm.fcix.net:443
             codingflyboy.mm.fcix.net:443
