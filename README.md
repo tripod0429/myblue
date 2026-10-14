@@ -4,7 +4,8 @@ My secureblue image, built with BlueBuild. It follows secureblue's own
 supply-chain model:
 
 1. **Commits** to `main` must be signed (GitHub ruleset).
-2. **CI** checks the secureblue base image, then builds, signs with the
+2. **CI** restricts outbound runner traffic, tests Bridge verification,
+   checks the secureblue base image, then builds, signs with the
    cosign key and publishes SLSA provenance. Provenance is a statement
    signed by GitHub saying this image was built by this repo's workflow,
    from `main`.
@@ -23,9 +24,11 @@ past it would take building from `main`, which needs your GitHub account
 | `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh`, `luks-add-fido2-key.sh` |
 | `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key` |
 | `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge install, checks, `policy.json` additions |
+| `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
 | `files/keys/proton-bridge.asc` | Proton's Bridge signing key, for checking the Bridge RPM at build time |
 | `.github/workflows/build.yml` | Daily build plus an hourly check for a new secureblue base; base-image check, signing, provenance |
 | `.github/dependabot.yml` | Weekly bumps for the pinned actions |
+| `tests/test_proton_bridge.py` | Offline regression tests for Bridge verification and installation ordering |
 | `bootstrap/trust-myblue.sh` | One-time: lets stock secureblue accept your image |
 | `keys/secureblue.pub` | secureblue's public key, for checking the base image (you add it) |
 | `cosign.pub` | Your public signing key (you add it) |
@@ -95,6 +98,7 @@ restrictions:
   - *Allow select actions*: tick *Allow actions created by GitHub* and
     list:
     ```
+    step-security/harden-runner@*,
     blue-build/*, sigstore/*, regclient/*, slsa-framework/*,
     hastd/free-disk-space@*, docker/setup-buildx-action@*,
     docker/setup-qemu-action@*, google-github-actions/auth@*
@@ -102,6 +106,8 @@ restrictions:
     The last four are used inside BlueBuild's action and the SLSA
     generator. If a run fails at *Set up job* with "not allowed", add the
     action it names.
+    Existing repos must add `step-security/harden-runner@*` before pushing
+    the runner-hardening changes.
   - Leave *Require actions to be pinned to a full-length commit SHA* **off**.
     The SLSA generator must be referenced by tag. Everything else in
     `build.yml` is already pinned by SHA.
@@ -187,6 +193,13 @@ downloads the current RPM, requires a valid signature from the key in
 `files/keys/` (fingerprint `D51E 64D3 E63E DC3E EF78 64CE E2C7 5D68
 E623 4B07`), and installs it. Each daily build picks up the latest Bridge.
 
+Verification uses a temporary RPM database containing only that key and
+explicitly selects RPM's `rpmdb` keyring backend. Other keys already trusted
+by the system cannot authenticate the download. Both digests and a signature
+must verify, and the package must identify as `protonmail-bridge` for `x86_64`.
+Only then is the key imported into the image's RPM database for DNF's own
+signature recheck. Neither package install enables weak dependencies.
+
 Autostart is Bridge's own *Open on startup* setting, not a service you
 write: it adds an XDG autostart entry (`protonmail-bridge --no-window`),
 which COSMIC runs as a systemd user unit and lists under *Startup
@@ -195,6 +208,41 @@ Applications*. Don't add Bridge there by hand: that copy starts without
 otherwise run newer versions it downloads into your home folder instead
 of the image's. `myblue-setup` lists both settings, and Peergos's
 equivalent, *Start on boot*.
+
+## Build-time hardening
+
+Both the hourly check and the build start with the same SHA-pinned
+Harden-Runner action as secureblue, with `egress-policy: block`. The check
+has a small allowlist for GitHub, GHCR and Sigstore; the build follows
+secureblue's endpoint allowlist with GitHub's API and Proton added. A new
+dependency or changed mirror may require an allowlist update. Investigate
+the blocked endpoint rather than switching to audit mode or allowing all
+outbound traffic. The SLSA generator remains upstream's reusable workflow.
+
+Unlike secureblue, both steps set `disable-telemetry: true`, so the runner's
+network and process data isn't sent to StepSecurity. There's no StepSecurity
+insights page for a run; a blocked endpoint shows up as the step that failed
+to connect. Telemetry can only be disabled in block mode.
+
+After custom package installation, the recipe reapplies secureblue's PDF
+thumbnailer removal, single-kernel check, SUID/SGID cleanup, sudo removal,
+prohibited-package check and SELinux-context check, then clears DNF's
+transaction history as upstream does. The vendored scripts
+and their source commit are recorded in `files/scripts/upstream/README.md`.
+The base image's metadata, initramfs and original audit baseline are retained.
+
+Run the offline verification regression tests locally with:
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+They run in the CI check job before a build can start. They cover isolated
+keyring selection, wrong/extra keys, unsigned or invalid signatures, another
+system-trusted signer, package identity, URL validation and install ordering.
+They use mock package managers and do not install packages or change the
+system keyring; actual RPM signature verification also needs testing with
+real signed, unsigned and tampered packages.
 
 ## Day to day
 
@@ -232,15 +280,25 @@ equivalent, *Start on boot*.
   `.github/workflows/build-one-recipe.yml` and
   `recipes/common/common-modules.yml` on their `live` branch, copy the new
   values.
+- **Following secureblue's package hardening:** compare
+  `recipes/common/final-modules.yml` and the scripts listed in
+  `files/scripts/upstream/README.md` with upstream, then update the vendored
+  scripts from a reviewed commit. Also follow their Harden-Runner pin and
+  build endpoint allowlist. Dependabot handles the action version, not the
+  endpoint list or vendored scripts.
 - **`ujust audit-secureblue`** reports `policy.json` as modified (INFO) and
   warns about the two `docker.io` scopes. That's expected. Don't copy your
   policy over `/usr/share/secureblue/etc/containers/policy.json` to silence
   it: the audit would then stop checking the policy at all.
 
-## Limits, the same as secureblue's own
+## Limits
 
 - Your GitHub account is the root of trust. Anyone who controls it can
   build from `main`, which is why it's protected by your YubiKeys.
+- This is a single-maintainer repo: signed commits do not replace
+  secureblue's independent maintainer review. Require independent source
+  review if another trusted reviewer becomes available; do not put a manual
+  approval gate on every scheduled build.
 - The provenance check runs on the two normal update paths. Typing
   `rpm-ostree upgrade` by hand skips it, and then only the cosign
   signature is checked.

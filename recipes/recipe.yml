@@ -19,6 +19,7 @@ modules:
   - type: dnf
     source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
     install:
+      install-weak-deps: false
       packages:
         # Doom Emacs runs inside Bubblejail, which sees the host's /usr
         # but not Homebrew, so its tools come from Fedora.
@@ -61,6 +62,16 @@ modules:
     scripts:
       - install-proton-bridge.sh
       - myblue-image-setup.sh
+      # Reapply secureblue's final package hardening after our installs.
+      # Vendored unchanged; upstream/README.md records the source commit.
+      # Keep the base image's metadata, initramfs and audit baseline.
+      - upstream/remove-pdf-thumbnailers.sh
+      - upstream/checksinglekernel.sh
+      - upstream/removesuid.sh
+      - upstream/removesudo.sh
+      - upstream/ensure-packages-absent.sh
+      - upstream/check-selinux-fcontext.sh
+      - upstream/libdnf5-clear-history.sh
 
   # Installs cosign.pub and adds this image to policy.json, so rpm-ostree
   # only accepts images signed with your key.
