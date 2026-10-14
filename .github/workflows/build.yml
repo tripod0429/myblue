@@ -3,6 +3,7 @@ name: build
 on:
   schedule:
     - cron: "17 9 * * *" # daily, a few hours after secureblue's 06:00 UTC build
+    - cron: "47 * * * *" # hourly: builds only if secureblue published a new base
   push:
     branches: [main]
     paths-ignore:
@@ -18,8 +19,66 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Pushes, manual runs and the daily schedule always build. The hourly
+  # schedule builds only when secureblue's base differs from the one the
+  # published image was built on, or when that image fails its provenance
+  # check (e.g. an earlier run stopped before provenance was attached).
+  check:
+    name: Check for a new base
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install slsa-verifier
+        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+      - name: Install regctl
+        uses: regclient/actions/regctl-installer@1b705e32d40851370799ea5814e83d0a5f6a70dc # v0.1.0
+
+      - name: Decide whether to build
+        id: check
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$(yq -r '.name' recipes/recipe.yml)"
+          base="$(yq -r '."base-image"' recipes/recipe.yml):$(yq -r '."image-version"' recipes/recipe.yml)"
+          if [[ $EVENT != schedule || $SCHEDULE == "17 9 * * *" ]]; then
+            reason="$EVENT run"
+            build=true
+          elif ! digest=$(regctl image digest "${image}:latest"); then
+            reason="no published image"
+            build=true
+          elif ! slsa-verifier verify-image --source-uri "github.com/${GITHUB_REPOSITORY,,}" \
+              --source-branch main "${image}@${digest}" > /dev/null; then
+            reason="published image fails its provenance check"
+            build=true
+          else
+            base_now=$(regctl image digest "$base")
+            built_on=$(regctl image config "${image}@${digest}" |
+              jq -r '.config.Labels["org.opencontainers.image.base.digest"] // empty')
+            if [[ $base_now != "$built_on" ]]; then
+              reason="new base ${base_now} (published image built on ${built_on:-unknown})"
+              build=true
+            else
+              reason="base unchanged (${base_now})"
+              build=false
+            fi
+          fi
+          echo "build=${build}: ${reason}"
+          echo "build=${build}" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build and sign
+    needs: check
+    if: needs.check.outputs.build == 'true'
     runs-on: ubuntu-latest # standard runner; larger runners are billed
     environment: release # holds SIGNING_SECRET, limited to main
     permissions:

@@ -23,7 +23,7 @@ past it would take building from `main`, which needs your GitHub account
 | `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` |
 | `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge install, checks, `policy.json` additions |
 | `files/keys/proton-bridge.asc` | Proton's Bridge signing key, for checking the Bridge RPM at build time |
-| `.github/workflows/build.yml` | Daily build, base-image check, signing, provenance |
+| `.github/workflows/build.yml` | Daily build plus an hourly check for a new secureblue base; base-image check, signing, provenance |
 | `.github/dependabot.yml` | Weekly bumps for the pinned actions |
 | `bootstrap/trust-myblue.sh` | One-time: lets stock secureblue accept your image |
 | `keys/secureblue.pub` | secureblue's public key, for checking the base image (you add it) |
@@ -211,6 +211,12 @@ equivalent, *Start on boot*.
   failed its signature check, or Proton changed its feed or rotated its
   key. Nothing is published. Only replace `files/keys/proton-bridge.asc`
   once Proton has announced the new key on its official site.
+- **When images are built:** on every push to `main` (except README
+  changes), daily at 09:17 UTC, and within the hour whenever secureblue
+  publishes a new base (urgent fixes included). The hourly runs that find
+  nothing new show the build as skipped. The machine still installs once a
+  day (04:00) or at boot; for an urgent fix, run `ujust update-system` once
+  the build is done, then reboot.
 - **Updates stop arriving:** `journalctl -u rpm-ostreed-automatic` shows
   why. secureblue also warns you once the system is a week out of date.
 - **Following secureblue's BlueBuild versions:** Dependabot can't bump the
