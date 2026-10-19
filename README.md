@@ -9,19 +9,24 @@ supply-chain model:
    cosign key and publishes SLSA provenance. Provenance is a statement
    signed by GitHub saying this image was built by this repo's workflow,
    from `main`.
-3. **The machine** checks two things before every update:
+3. **The machine** checks three things before every update:
    - rpm-ostree checks the cosign signature (`policy.json`).
-   - `verify-provenance.sh` checks the provenance. secureblue runs this
-     script before automatic updates and before `ujust update-system`.
+   - `verify-provenance.sh` checks the provenance, then checks that the
+     commit the image was built from is signed by a key in
+     `/usr/share/myblue/allowed_signers` (the FIDO2 key on your token).
+     secureblue runs this script before automatic updates and before
+     `ujust update-system`.
 
-A stolen signing key on its own can't get an image past step 3. Getting
-past it would take building from `main`, which needs your GitHub account
-(protected by your YubiKeys).
+GitHub vouches for the cosign signature (its key is a GitHub secret) and
+for the provenance. The commit signature is the one thing someone with your
+GitHub account, a `gh` token or a browser session can't produce: it needs
+your token and a touch. GitHub's own signature on merges made in its web UI
+doesn't count.
 
 | File | Purpose |
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
-| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh`, `luks-add-fido2-key.sh` |
+| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh` |
 | `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key` |
 | `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge install, checks, `policy.json` additions |
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
@@ -180,7 +185,9 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
    had layered that are now in the image as inactive requests. Remove
    them with `rpm-ostree uninstall <pkgs>`.
 5. **Test the update check:** `/usr/libexec/secureblue/verify-provenance.sh`
-   should exit 0 and print a `PASSED` line from slsa-verifier.
+   should exit 0, print a `PASSED` line from slsa-verifier, a `Good "git"
+   signature` line for your key, and `built from <commit>, signed by an
+   allowed key`.
 
 On a fresh machine, install stock secureblue first, then start at step 2.
 That way secureblue's first-boot cleanup has already run.
@@ -248,9 +255,42 @@ real signed, unsigned and tampered packages.
 
 - **Change the config:** make a signed commit (your `.gitconfig` signs by
   default) and push. The image builds and arrives with the next automatic
-  update, then a reboot.
-- **Dependabot PRs:** check what changed in the action, then merge. Merging
-  in the web UI is fine; GitHub signs the merge commit.
+  update, then a reboot. Your touch approves whatever is staged, so check
+  `git diff --staged` first.
+- **Dependabot PRs:** don't merge them in the web UI. GitHub would sign
+  that merge, and your machine refuses images built from it. Review and
+  merge locally instead; GitHub then marks the PR as merged:
+  ```sh
+  git fetch origin pull/<N>/head
+  git log -p HEAD..FETCH_HEAD          # what changed
+  git merge --no-ff -m "Merge Dependabot PR #<N>" FETCH_HEAD   # touch the key
+  git push
+  ```
+- **Pulling:** this clone has `merge.verifySignatures` on, so `git pull`
+  refuses when the newest commit on GitHub isn't signed by a key in
+  `allowed_signers`. Otherwise you could sign on top of someone else's
+  commit without noticing. If a pull is refused, find out where the commit
+  came from before doing anything else. If it's your own web-UI merge,
+  review it, then approve it with a signed commit on top:
+  ```sh
+  git pull --no-verify-signatures
+  git commit --allow-empty -m "Approve <commit>"   # touch the key
+  git push
+  ```
+- **Working from another clone:** turn the same check on there:
+  ```sh
+  git config merge.verifySignatures true
+  git config gpg.ssh.allowedSignersFile "$PWD/files/system/usr/share/myblue/allowed_signers"
+  ```
+- **The build fails at "Check commit signature":** the newest commit on
+  `main` isn't signed by a key in `allowed_signers`, for example after a
+  web-UI merge. Your machine would refuse that image anyway; this just
+  makes it visible straight away. Fix it as under *Pulling*.
+- **Another signing key (for example a backup token):** create a resident
+  key on it (`ssh-keygen -t ed25519-sk -O resident`) and add its `.pub` as
+  a line in `files/system/usr/share/myblue/allowed_signers`. Commit that
+  with your current key and push. Add it on GitHub as a signing key too.
+  The new key only counts once your machine has installed that image.
 - **The build fails at "Verify secureblue base image":** secureblue's
   image failed its signature or provenance check, or secureblue rotated
   its key. Nothing gets built or published, so your machine stays on its
@@ -274,6 +314,8 @@ real signed, unsigned and tampered packages.
   key is touched. Reboot with each key on its own to check it unlocks.
 - **Updates stop arriving:** `journalctl -u rpm-ostreed-automatic` shows
   why. secureblue also warns you once the system is a week out of date.
+  `is not signed by a key in /usr/share/myblue/allowed_signers` means the
+  newest image was built from a commit you didn't sign; see *Pulling*.
 - **Following secureblue's BlueBuild versions:** Dependabot can't bump the
   BlueBuild CLI (`cli_version` in `build.yml`) or the modules image digest
   (`source:` on each module in the recipe). When secureblue bumps them, in
@@ -293,14 +335,27 @@ real signed, unsigned and tampered packages.
 
 ## Limits
 
-- Your GitHub account is the root of trust. Anyone who controls it can
-  build from `main`, which is why it's protected by your YubiKeys.
+- The FIDO2 key on your token is the root of trust for what gets
+  installed. Someone who controls your GitHub account can still stop
+  updates (break the build, delete the package), and can read the cosign
+  key through a workflow on `main`, but can't get an image past the update
+  check.
+- Only the commit an image was built from is checked. Earlier commits are
+  trusted because you signed on top of them, which is why `git pull`
+  refuses commits you didn't sign.
+- If you lose every key in `allowed_signers`, updates stop. To recover:
+  1. Add a new key to the file and to GitHub as a signing key.
+  2. Commit the change, signed with the new key, and push.
+  3. Once it's built, run `rpm-ostree upgrade` by hand on each machine.
+     That checks only the cosign signature.
+
+  A backup signing key in the file avoids this.
 - This is a single-maintainer repo: signed commits do not replace
   secureblue's independent maintainer review. Require independent source
   review if another trusted reviewer becomes available; do not put a manual
   approval gate on every scheduled build.
-- The provenance check runs on the two normal update paths. Typing
-  `rpm-ostree upgrade` by hand skips it, and then only the cosign
+- The provenance and commit checks run on the two normal update paths.
+  Typing `rpm-ostree upgrade` by hand skips them, and then only the cosign
   signature is checked.
 - The checks look at the digest `latest` points to, and the image is
   fetched a moment later. secureblue's updater has the same small window.

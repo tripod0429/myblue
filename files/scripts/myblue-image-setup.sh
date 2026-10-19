@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # Fail the build instead of shipping an update check that can't work.
-for tool in rpm-ostree jq crane slsa-verifier; do
+for tool in rpm-ostree jq crane slsa-verifier git ssh-keygen; do
   command -v "$tool" >/dev/null || { echo "missing in base image: $tool" >&2; exit 1; }
 done
 

@@ -1,0 +1,8 @@
+# Keys whose commits this machine will install images from (git's
+# gpg.ssh.allowedSignersFile format). verify-provenance.sh checks that the
+# commit an image was built from is signed by one of them. A new key only
+# counts once an image listing it, built from a commit signed by a key
+# already here, is installed.
+#
+# Token2 FIDO2 key, SHA256:0RX1usxu03p8Nf5lH3kqRmHuNx5VLuTQec0tKCNJuG0
+293636407+tripod0429@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIH8T+XMJNbqWXDD/NnDsbL3b5xvzYcxO4unQTQ5uK8NMAAAADnNzaDp0cmlwb2QwNDI5 tripod0429-signing

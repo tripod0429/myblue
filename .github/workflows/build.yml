@@ -50,6 +50,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # Your machine only installs images built from a commit signed by a
+      # key in allowed_signers (verify-provenance.sh). Failing here too
+      # turns an unsigned or web-merged commit into a failed run, instead of
+      # updates quietly stopping. Not a security check: whoever can push to
+      # main can also change this file.
+      - name: Check commit signature
+        run: |
+          git -c gpg.ssh.allowedSignersFile=files/system/usr/share/myblue/allowed_signers \
+            -c gpg.openpgp.program=false -c gpg.x509.program=false \
+            verify-commit HEAD
+
       - name: Test Bridge verification
         run: python3 -m unittest discover -s tests -v
 
