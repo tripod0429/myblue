@@ -1,7 +1,6 @@
 #!/usr/bin/bash
 # One-time secureblue setup for a new machine.
-# Every step asks first, so it is safe to re-run. Run it after the first
-# `chezmoi apply`, because the bash lockdown at the end freezes ~/.bashrc.
+# Every step asks first, so it is safe to re-run.
 set -euo pipefail
 
 ask() {
@@ -48,9 +47,10 @@ your home folder instead.
 Peergos: open it and turn on "Start on boot" in its settings, if it
 isn't on already.
 
-Bash environment lockdown makes ~/.bashrc and ~/.bash_profile unwritable,
-so chezmoi can't update them while it is on. Toggle it off, run
-`chezmoi apply`, and toggle it back on when you change them.
+Bash environment lockdown resets ~/.bashrc, ~/.bash_profile, ~/.bashrc.d
+and ~/.config/environment.d to secureblue's defaults (backups go to
+~/bash_env_files) and makes them immutable. Your shell settings are in the
+image (/etc/profile.d/myblue.sh), so nothing is lost. Change them there.
 
 EOF
 step toggle-bash-environment-lockdown

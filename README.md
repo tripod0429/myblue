@@ -26,7 +26,7 @@ doesn't count.
 | File | Purpose |
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
-| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh` |
+| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh`, shell settings (`/etc/profile.d/myblue.sh`) |
 | `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key` |
 | `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge install, checks, `policy.json` additions |
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
@@ -229,6 +229,24 @@ only it. If RamaLama starts picking another image (ROCm, say), the pull fails
 with a policy error. Add that repo on purpose, not the whole namespace.
 
 The model service that starts at login is a quadlet in the dotfiles.
+
+## Shell settings
+
+`ujust toggle-bash-environment-lockdown` resets `~/.bashrc`,
+`~/.bash_profile`, `~/.bashrc.d` and `~/.config/environment.d` to
+`/etc/skel`'s versions (or empty) and makes them immutable. Backups go to
+`~/bash_env_files`. Turning it off only lifts the immutability, so anything
+in those files is lost each time it's turned on. So the settings you'd put
+there (gpg-agent as SSH agent, ghcup on `PATH`, the opencode alias) are in
+`files/system/etc/profile.d/myblue.sh`, the same place secureblue ships its
+own (`gnome-disable-jit.sh`, `xx-bash-prompt-command.sh`). Being in the
+image, they're root-owned and signed like the rest of it. The dotfiles
+leave `~/.bashrc` and `~/.bash_profile` to secureblue.
+
+Don't put anything there that evaluates user-writable config at shell
+start (`mise activate`, `direnv hook` and the like): malware running as you
+could use it to set `LD_PRELOAD`, which is what the lockdown is meant to
+stop.
 
 ## Build-time hardening
 
