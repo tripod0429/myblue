@@ -17,11 +17,15 @@ policy=/etc/containers/policy.json
 
 install -D -m 0644 "$repo/cosign.pub" "$key"
 
-cat > "/etc/containers/registries.d/$OWNER-$NAME.yaml" <<EOF
+registries="/etc/containers/registries.d/$OWNER-$NAME.yaml"
+cat > "$registries" <<EOF
 docker:
   $scope:
     use-sigstore-attachments: true
 EOF
+# run0 applies secureblue's umask 027. Rootless podman reads every file in
+# registries.d, and one it can't read makes all its pulls fail.
+chmod 0644 "$registries"
 
 cp -a "$policy" "$policy.bak"
 tmp=$(mktemp "$policy.XXXXXX")
