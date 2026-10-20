@@ -20,6 +20,12 @@
       "default_launch_container": "window",
       "create_desktop_shortcut": true,
       "fallback_app_name": "Discord"
+    },
+    {
+      "url": "http://127.0.0.1:8080/",
+      "default_launch_container": "window",
+      "create_desktop_shortcut": true,
+      "fallback_app_name": "llama-ui"
     }
   ]
 }

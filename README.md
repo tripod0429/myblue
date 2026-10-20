@@ -229,6 +229,9 @@ only it. If RamaLama starts picking another image (ROCm, say), the pull fails
 with a policy error. Add that repo on purpose, not the whole namespace.
 
 The model service that starts at login is a quadlet in the dotfiles.
+Its chat UI (llama.cpp's `llama-ui`, a full PWA) is a Trivalent web app
+in `web-apps.json` at `http://127.0.0.1:8080/`. That port has to match
+`ramalama.port` in the dotfiles' `packages.yaml`.
 
 ## Shell settings
 
