@@ -12,11 +12,13 @@ chmod 0755 /usr/libexec/secureblue/verify-provenance.sh /usr/bin/myblue-setup \
   /usr/libexec/myblue/luks-add-fido2-key.sh
 
 # Unsigned images I pull with podman. `ujust audit-secureblue` warns
-# about these two scopes; that is expected.
+# about these scopes; that is expected. quay.io/ramalama/ramalama is
+# RamaLama's Vulkan image, which it picks for this GPU; it isn't signed.
 policy=/etc/containers/policy.json
 jq '.transports.docker += {
       "docker.io/cloudron/base": [{"type": "insecureAcceptAnything"}],
-      "docker.io/selenium/standalone-chromium": [{"type": "insecureAcceptAnything"}]
+      "docker.io/selenium/standalone-chromium": [{"type": "insecureAcceptAnything"}],
+      "quay.io/ramalama/ramalama": [{"type": "insecureAcceptAnything"}]
     }' "$policy" > /tmp/policy.json
 cat /tmp/policy.json > "$policy"
 rm /tmp/policy.json

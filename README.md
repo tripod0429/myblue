@@ -174,10 +174,11 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
 3. **Hand `policy.json` back to the image**, so future policy changes from
    the image take effect. This drops any other local edits to it; check
    `diff <(jq -S . /usr/etc/containers/policy.json) <(jq -S . /etc/containers/policy.json)`
-   first. The image already has your key and the two `docker.io` entries
-   for podman, so anything the diff shows is either a newer secureblue
-   change (keep the image's version) or a local edit you need to carry
-   into the recipe.
+   first. The image already has your key and the podman entries for
+   `docker.io` and `quay.io/ramalama`, so anything the diff shows is
+   either a newer secureblue change (keep the image's version) or a local
+   edit you need to carry into the recipe. RamaLama needs this step: until
+   then, podman refuses its image.
    ```sh
    run0 cp /usr/etc/containers/policy.json /etc/containers/policy.json
    ```
@@ -215,6 +216,19 @@ Applications*. Don't add Bridge there by hand: that copy starts without
 otherwise run newer versions it downloads into your home folder instead
 of the image's. `myblue-setup` lists both settings, and Peergos's
 equivalent, *Start on boot*.
+
+## RamaLama
+
+`ramalama` comes from Fedora's repos. It runs models in rootless podman
+containers, using an image from `quay.io/ramalama` that matches its minor
+version. Those images aren't signed (no cosign signatures or attachments),
+and secureblue's `policy.json` rejects anything it doesn't list, so
+`myblue-image-setup.sh` allows `quay.io/ramalama/ramalama`. That is the
+Vulkan image RamaLama picks for this machine's AMD GPU, and the scope allows
+only it. If RamaLama starts picking another image (ROCm, say), the pull fails
+with a policy error. Add that repo on purpose, not the whole namespace.
+
+The model service that starts at login is a quadlet in the dotfiles.
 
 ## Build-time hardening
 
@@ -329,7 +343,8 @@ real signed, unsigned and tampered packages.
   build endpoint allowlist. Dependabot handles the action version, not the
   endpoint list or vendored scripts.
 - **`ujust audit-secureblue`** reports `policy.json` as modified (INFO) and
-  warns about the two `docker.io` scopes. That's expected. Don't copy your
+  warns about the two `docker.io` scopes and `quay.io/ramalama/ramalama`.
+  That's expected. Don't copy your
   policy over `/usr/share/secureblue/etc/containers/policy.json` to silence
   it: the audit would then stop checking the policy at all.
 

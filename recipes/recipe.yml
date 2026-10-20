@@ -33,6 +33,9 @@ modules:
         - libtool
         - gmp-devel
         - zenity
+        # Local LLMs in rootless podman containers. The model service that
+        # starts at login is a quadlet in the dotfiles.
+        - ramalama
 
   # files/system/ is copied to / :
   # - Trivalent managed policies (correct SELinux labels, no restorecon)
