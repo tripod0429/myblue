@@ -316,10 +316,15 @@ skips the alias.
 - opencode 2 always talks to a local server. `/usr/bin/myblue-opencode`
   starts a private one inside the sandbox on a port the profile allows
   (4097–4106) and stops it on exit, as `--standalone` does on a random port.
-  Log in to ChatGPT with `/connect` in the TUI or `opencode auth login`.
   `opencode debug`, `mcp` and `plugin` need the background server, which
   the sandbox can't reach. Don't run opencode outside nono: that starts the
   unsandboxed background server (`opencode service stop` stops it).
+- Log in to ChatGPT with `opencode-login`. Its "Sign in with ChatGPT"
+  waits for the browser on a random local port, which only that alias
+  allows (`--listen-port 0`). That grant covers any interface, so the
+  `opencode` alias leaves it out: `/connect` and `opencode auth login` there
+  fail with `permission denied 127.0.0.1:0`. Their "(legacy)" methods use
+  the ports 1455 and 1457 the profile allows, with the Codex CLI's client ID.
 - `myblue-agent-check` runs first. Either sandbox can edit the agents'
   instructions, skills and agent definitions (`~/.claude`,
   `~/.config/opencode`), and every later session of both agents loads

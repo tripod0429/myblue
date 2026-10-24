@@ -28,4 +28,8 @@ if [ "$(/usr/bin/id -u)" != 0 ]; then
 
     # myblue-opencode gives opencode its server inside the sandbox.
     alias opencode='myblue-agent-check && nono run --profile opencode-haskell --rollback --strict-broker-path -- myblue-opencode'
+
+    # The ChatGPT sign-in waits for the browser on a random local port.
+    # --listen-port 0 allows that, on any interface, so only the login gets it.
+    alias opencode-login='myblue-agent-check && nono run --profile opencode-haskell --rollback --strict-broker-path --listen-port 0 -- myblue-opencode auth login'
 fi
