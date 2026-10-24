@@ -1,0 +1,53 @@
+#!/usr/bin/bash
+# Runs opencode inside the nono sandbox the `opencode` alias starts it in
+# (/etc/profile.d/myblue.sh, profile opencode-haskell from the dotfiles).
+# opencode 2 always talks to a local server, and --standalone starts a
+# private one on a random port. The sandbox can't allow that without
+# allowing every local port, including that of a background server running
+# outside nono. So this does what --standalone does, on a port the profile
+# allows (4097-4106, so up to ten sessions), and stops the server on exit.
+set -euo pipefail
+
+# secureblue sets JavaScriptCoreUseJIT=0 globally; opencode's Bun needs the JIT for bun:ffi.
+unset JavaScriptCoreUseJIT
+
+# Only the TUI and these subcommands take --server (after the subcommand).
+# The others (auth, session, ...) want the background server, which the
+# sandbox can't reach; log in with /connect in the TUI instead.
+sub=()
+case ${1-} in
+  run | models | agent | export | import | stats | api | reload | github | pr) sub=("$1"); shift ;;
+  '' | -*) ;;
+  *) [[ -d $1 ]] || exec opencode "$@" ;;
+esac
+
+# A fresh password, as --standalone uses, so other sessions can't use this server.
+OPENCODE_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '/+=\n')
+export OPENCODE_PASSWORD
+
+log=$(mktemp)
+server=
+trap 'if [[ -n $server ]]; then kill "$server" 2>/dev/null; wait "$server"; fi; rm -f "$log"' EXIT
+
+for port in {4097..4106}; do
+  opencode serve --hostname 127.0.0.1 --port "$port" </dev/null >"$log" 2>&1 &
+  server=$!
+  # Wait for the server to report it's listening; it exits if the port is taken.
+  for _ in {1..100}; do
+    if grep -q "listening on http://127.0.0.1:$port" "$log"; then
+      status=0
+      opencode "${sub[@]}" --server "http://127.0.0.1:$port" "$@" || status=$?
+      exit "$status"
+    fi
+    kill -0 "$server" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 "$server" 2>/dev/null; then
+    echo "myblue-opencode: opencode's server didn't start:" >&2
+    cat "$log" >&2
+    exit 1
+  fi
+  server=
+done
+echo "myblue-opencode: ports 4097-4106 are all in use" >&2
+exit 1

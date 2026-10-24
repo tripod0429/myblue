@@ -19,9 +19,11 @@ if [ "$(/usr/bin/id -u)" != 0 ]; then
 
     # Start the coding agents inside nono. They can write their own config
     # (hooks, plugins), which would run unsandboxed in a session started
-    # without it. `command claude` skips the sandbox.
-    alias claude='nono run --profile claude-haskell -- claude'
+    # without it. `command claude` skips the sandbox. --rollback snapshots
+    # the launch folder (`nono rollback` restores it); --strict-broker-path
+    # refuses to start if the agent could write to a directory on PATH.
+    alias claude='nono run --profile claude-haskell --rollback --strict-broker-path -- claude'
 
-    # secureblue sets JavaScriptCoreUseJIT=0 globally; opencode's Bun needs the JIT for bun:ffi.
-    alias opencode='nono run --profile opencode-haskell -- env -u JavaScriptCoreUseJIT opencode'
+    # myblue-opencode gives opencode its server inside the sandbox.
+    alias opencode='nono run --profile opencode-haskell --rollback --strict-broker-path -- myblue-opencode'
 fi

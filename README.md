@@ -253,6 +253,25 @@ agents can write their own config, and hooks in it would run
 with your full access in a session started without nono. `command claude`
 skips the alias.
 
+- `--rollback` snapshots the launch folder. When a session changed files,
+  nono offers to restore them on exit; later, `nono rollback list` and
+  `nono rollback restore <id>`. The profiles keep the agents' own folders
+  and caches out of the snapshots.
+- `--strict-broker-path` refuses to start if the agent could write to a
+  directory on `PATH`, where it could plant a program you'd later run
+  outside the sandbox.
+- The profiles block local Unix sockets (`af_unix_mediation`). Without
+  that, an agent can ask systemd over D-Bus to run commands outside the
+  sandbox (CVE-2026-47128; nono's fix is opt-in). Agents can't send desktop
+  notifications or paste images from the clipboard as a result.
+- opencode 2 always talks to a local server. `/usr/bin/myblue-opencode`
+  starts a private one inside the sandbox on a port the profile allows
+  (4097–4106) and stops it on exit, as `--standalone` does on a random port.
+  Log in to ChatGPT with `/connect` in the TUI; `opencode auth` and
+  `opencode session` need the background server, which the sandbox can't
+  reach. Don't run opencode outside nono: that starts the unsandboxed
+  background server (`opencode service stop` stops it).
+
 Don't put anything there that evaluates user-writable config at shell
 start (`mise activate`, `direnv hook` and the like): malware running as you
 could use it to set `LD_PRELOAD`, which is what the lockdown is meant to
