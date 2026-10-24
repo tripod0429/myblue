@@ -251,13 +251,6 @@ daemon reads. It enables `mullvad-daemon` and `mullvad-early-boot-blocking`.
 secureblue removed `ujust install-vpn` for Fedora 45 (secureblue#2731),
 along with Mullvad's repo file.
 
-## Steam
-
-secureblue has an open pull request removing `ujust install-steam`
-(secureblue#2749). `myblue-setup` does what its Flatpak method did: it
-installs Steam from the unfiltered Flathub remote and sets its overrides.
-It also offers Xwayland and ptrace, and removes `ia32_emulation=0`.
-
 ## RamaLama
 
 `ramalama` comes from Fedora's repos. It runs models in rootless podman

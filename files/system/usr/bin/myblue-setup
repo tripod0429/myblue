@@ -16,34 +16,6 @@ step() {
   printf '\n'
 }
 
-# secureblue has a pull request removing `ujust install-steam`. This does
-# what its Flatpak method did, from the unfiltered Flathub remote, which the
-# dotfiles add as "flathub".
-install_steam() {
-  ask 'Install Steam from Flathub?' || return 0
-  flatpak install -y --user --or-update flathub com.valvesoftware.Steam || return
-  # Without hardened_malloc, and with the permissions it needs despite
-  # flatpak-permissions-lockdown. Controllers also need --device=input if
-  # that is denied globally; anti-cheat needs --allow=devel and ptrace (below).
-  flatpak override --user --unset-env=LD_PRELOAD --nofilesystem=host-os \
-    --share=network --share=ipc --socket=x11 --socket=pulseaudio \
-    --allow=multiarch --allow=per-app-dev-shm com.valvesoftware.Steam || return
-  printf '\n'
-  # Steam needs Xwayland and 32-bit syscalls, which set-kargs-hardening can
-  # turn off.
-  if ! pgrep -x Xwayland >/dev/null && ! pgrep -x Xorg >/dev/null; then
-    step set-xwayland on
-  fi
-  if rpm-ostree kargs | grep -qw 'ia32_emulation=0'; then
-    echo 'Steam needs 32-bit support: removing the ia32_emulation=0 boot argument.'
-    rpm-ostree kargs --delete-if-present=ia32_emulation=0 || return
-    printf '\n'
-  fi
-  echo 'Anti-cheat in some games needs ptrace.'
-  step set-ptrace on
-  echo 'Reboot before starting Steam if any of this changed.'
-}
-
 step set-kargs-hardening
 step setup-usbguard
 step set-container-userns on
@@ -52,8 +24,7 @@ step flatpak-permissions-lockdown
 step harden-flatpak
 printf "Mullvad's DNS doesn't work with Unbound, secureblue's other resolver.\n"
 step dns-selector resolver resolved
-install_steam || echo 'Installing Steam failed, continuing' >&2
-printf '\n'
+step install-steam
 
 printf 'The next two are toggles: running them again turns them back off.\n\n'
 step toggle-mac-randomization
