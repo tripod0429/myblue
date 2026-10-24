@@ -26,7 +26,7 @@ doesn't count.
 | File | Purpose |
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
-| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files |
+| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
 | `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key` |
 | `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge and Mullvad installs, their RPM verifier, checks, `policy.json` additions |
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
@@ -250,6 +250,18 @@ daemon reads. It enables `mullvad-daemon` and `mullvad-early-boot-blocking`.
 
 secureblue removed `ujust install-vpn` for Fedora 45 (secureblue#2731),
 along with Mullvad's repo file.
+
+## Nitrokey udev rules
+
+`/usr/lib/udev/rules.d/41-nitrokey.rules` is Nitrokey's own rules file
+(`github.com/Nitrokey/nitrokey-udev-rules`), unchanged below a comment
+naming the commit it came from. Fedora doesn't package it. systemd's rules
+already let you use the keys; this file adds their bootloader modes, which a
+firmware update from Nitrokey App 2 (a Flatpak in the dotfiles) restarts
+them into. USBGuard blocks the bootloader too, as a new device: allow it
+for the update with `usbguard allow-device <number>`, without
+`--permanent`. To update the rules, replace everything below the comment
+and change the commit in its first line.
 
 ## RamaLama
 
