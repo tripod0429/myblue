@@ -22,8 +22,10 @@ if [ "$(/usr/bin/id -u)" != 0 ]; then
     # without it. `command claude` skips the sandbox. --rollback snapshots
     # the launch folder (`nono rollback` restores it); --strict-broker-path
     # refuses to start if the agent could write to a directory on PATH.
-    alias claude='nono run --profile claude-haskell --rollback --strict-broker-path -- claude'
+    # myblue-agent-check first compares the agents' instructions, skills and
+    # agent definitions with the dotfiles, since either sandbox can edit them.
+    alias claude='myblue-agent-check && nono run --profile claude-haskell --rollback --strict-broker-path -- claude'
 
     # myblue-opencode gives opencode its server inside the sandbox.
-    alias opencode='nono run --profile opencode-haskell --rollback --strict-broker-path -- myblue-opencode'
+    alias opencode='myblue-agent-check && nono run --profile opencode-haskell --rollback --strict-broker-path -- myblue-opencode'
 fi

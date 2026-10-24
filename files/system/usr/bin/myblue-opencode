@@ -11,12 +11,15 @@ set -euo pipefail
 # secureblue sets JavaScriptCoreUseJIT=0 globally; opencode's Bun needs the JIT for bun:ffi.
 unset JavaScriptCoreUseJIT
 
-# Only the TUI and these subcommands take --server (after the subcommand).
-# The others (auth, session, ...) want the background server, which the
-# sandbox can't reach; log in with /connect in the TUI instead.
+# --server goes after the full subcommand. Only the TUI and these take it;
+# the others (debug, mcp, plugin, ...) want the background server, which
+# the sandbox can't reach.
 sub=()
 case ${1-} in
-  run | models | agent | export | import | stats | api | reload | github | pr) sub=("$1"); shift ;;
+  run | models | stats | api | reload) sub=("$1"); shift ;;
+  auth | session)
+    if [[ $# -lt 2 || $2 == -* ]]; then exec opencode "$@"; fi
+    sub=("$1" "$2"); shift 2 ;;
   '' | -*) ;;
   *) [[ -d $1 ]] || exec opencode "$@" ;;
 esac

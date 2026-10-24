@@ -267,10 +267,16 @@ skips the alias.
 - opencode 2 always talks to a local server. `/usr/bin/myblue-opencode`
   starts a private one inside the sandbox on a port the profile allows
   (4097–4106) and stops it on exit, as `--standalone` does on a random port.
-  Log in to ChatGPT with `/connect` in the TUI; `opencode auth` and
-  `opencode session` need the background server, which the sandbox can't
-  reach. Don't run opencode outside nono: that starts the unsandboxed
-  background server (`opencode service stop` stops it).
+  Log in to ChatGPT with `/connect` in the TUI or `opencode auth login`.
+  `opencode debug`, `mcp` and `plugin` need the background server, which
+  the sandbox can't reach. Don't run opencode outside nono: that starts the
+  unsandboxed background server (`opencode service stop` stops it).
+- `myblue-agent-check` runs first. Either sandbox can edit the agents'
+  instructions, skills and agent definitions (`~/.claude`,
+  `~/.config/opencode`), and every later session of both agents loads
+  them. It compares them with the dotfiles (`chezmoi status` and
+  `chezmoi unmanaged`) and asks before starting the agent if a file
+  changed or a new one appeared.
 
 Don't put anything there that evaluates user-writable config at shell
 start (`mise activate`, `direnv hook` and the like): malware running as you

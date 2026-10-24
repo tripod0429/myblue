@@ -1,0 +1,43 @@
+#!/usr/bin/bash
+# Run by the `claude` and `opencode` aliases (/etc/profile.d/myblue.sh)
+# before they start an agent in nono. Both sandboxes can write ~/.claude,
+# and opencode's can write ~/.config/opencode, so one session could change
+# the instructions, skills or agents that every later session of either
+# agent loads. The real ones are in the dotfiles (chezmoi): ask before
+# starting if any file differs from them or a new one appeared.
+set -euo pipefail
+
+paths=(~/.claude/CLAUDE.md ~/.claude/skills ~/.claude/agents
+  ~/.config/opencode/AGENTS.md ~/.config/opencode/agents)
+
+if ! command -v chezmoi >/dev/null || ! chezmoi source-path >/dev/null 2>&1; then
+  echo "myblue-agent-check: no chezmoi dotfiles here; not checking agent config" >&2
+  exit 0
+fi
+
+changed=$(chezmoi status "${paths[@]}")
+existing=()
+for p in "${paths[@]}"; do
+  if [[ -e $p ]]; then existing+=("$p"); fi
+done
+new=
+if ((${#existing[@]})); then
+  # ~/.claude/skills/synced is Claude's copy of your claude.ai skills.
+  new=$(chezmoi unmanaged "${existing[@]}" | grep -vx '\.claude/skills/synced' || true)
+fi
+
+if [[ -z $changed && -z $new ]]; then exit 0; fi
+
+echo "Agent instructions, skills or agents differ from your dotfiles:" >&2
+if [[ -n $changed ]]; then
+  while read -r _ path; do echo "  changed: $path"; done <<<"$changed" >&2
+fi
+if [[ -n $new ]]; then
+  while read -r path; do echo "  new:     $path"; done <<<"$new" >&2
+fi
+cat >&2 <<'EOF'
+Review with `chezmoi diff`; `chezmoi apply` restores the changed files.
+Delete new files you didn't add, or keep them with `chezmoi add`.
+EOF
+read -rp "Start the agent anyway? [y/N] " answer || answer=
+[[ $answer == [yY]* ]]
