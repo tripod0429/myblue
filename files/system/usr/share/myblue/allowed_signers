@@ -4,5 +4,15 @@
 # counts once an image listing it, built from a commit signed by a key
 # already here, is installed.
 #
-# Token2 FIDO2 key, SHA256:0RX1usxu03p8Nf5lH3kqRmHuNx5VLuTQec0tKCNJuG0
+# One ssh:tripod0429 FIDO2 key per security key, by the label on it (the
+# dotfiles' KEYS.md says which is which). All need a touch, and all but
+# t22's also the key's PIN.
+#
+# t22 (Token2), SHA256:0RX1usxu03p8Nf5lH3kqRmHuNx5VLuTQec0tKCNJuG0
 293636407+tripod0429@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIH8T+XMJNbqWXDD/NnDsbL3b5xvzYcxO4unQTQ5uK8NMAAAADnNzaDp0cmlwb2QwNDI5 tripod0429-signing
+# t26 (Token2), SHA256:PKfv1NRO8JoIQoPJczI5FOOeHoeK1+VZZhojP6c7rWo
+293636407+tripod0429@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIC9qwSaQD9rX6r1DVryN/gHfdqZfe8QHPxX2kk9ile27AAAADnNzaDp0cmlwb2QwNDI5 tripod0429-t26
+# nka (Nitrokey 3), SHA256:N9rTOfA56DS3QeGOaP0BoLjLqcTlNR1loydnjZSYlAY
+293636407+tripod0429@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAILuMhWeQkbKjRCo3tp5k1RpkrKYZQBFB71IaeWd+FKPyAAAADnNzaDp0cmlwb2QwNDI5 tripod0429-nka
+# nkc (Nitrokey 3), SHA256:R8+TBJ78JvDaIptZiPXbRmyJSKYeC6L0BpaSZljPBTo
+293636407+tripod0429@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIM5swWMgHc1T65LLpnYGnTRmmw+YZc8IoAqL236VrUvmAAAADnNzaDp0cmlwb2QwNDI5 tripod0429-nkc

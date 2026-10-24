@@ -134,6 +134,12 @@ fi
 # ==========================================================================
 KL='' KLRC=0 KLERR=''
 in_keyring() { [ -n "$1" ] && grep -q "^fpr:::::::::$1:" <<<"$KL"; }
+# certonly FPR  -> true if the key FPR in your keyring can certify but not
+# sign data: a primary key on a certify card sits in the Signature slot.
+certonly() {
+  [ -n "$1" ] && awk -F: -v f="$1" '$1 ~ /^(sec|ssb)$/ { c = $12; next }
+    $1 == "fpr" && $10 == f { print (c ~ /c/ && c !~ /s/) ? "y" : "n"; exit }' <<<"$KL" | grep -qx y
+}
 # sigfprs KEY  -> fingerprints of the usable signing key and subkeys of KEY
 sigfprs() {
   gpg --list-keys --with-colons -- "$1" 2>/dev/null | awk -F: '
@@ -141,7 +147,7 @@ sigfprs() {
     $1 == "fpr" && s { print $10; s = 0 }'
 }
 
-section "OpenPGP card  ->  gpg, git signing with gpg, ssh through gpg-agent"
+section "OpenPGP card  ->  gpg (sign, decrypt, certify); git or ssh only if set up to use it"
 CARD_SN='' SIGFPR='' ENCFPR='' AUTFPR='' CARD_SIGNS=0
 if ! have gpg; then
   note "gnupg not installed - skipping"
@@ -169,14 +175,17 @@ else
     else
       for s in "sign:$SIGFPR" "encrypt:$ENCFPR" "auth:$AUTFPR"; do
         f=${s#*:}; [ -z "$f" ] && continue
-        if in_keyring "$f"; then info "${s%%:*} slot: matches a key in your keyring"
+        if certonly "$f"; then info "${s%%:*} slot: your primary key, certify only - this is a certify card"
+        elif in_keyring "$f"; then info "${s%%:*} slot: matches a key in your keyring"
         else info "${s%%:*} slot: NOT in your keyring - gpg can't use it until you import its public key"; fi
       done
-      dim "the same three fingerprints on two cards = the same subkeys on both"
+      dim "the same fingerprint on two cards = the same key on both"
     fi
 
     if [ "$VERIFY" = 1 ]; then
-      if in_keyring "$SIGFPR"; then
+      if certonly "$SIGFPR"; then
+        unknown "OpenPGP card $CARD_SN: certifying not tested (it changes a key) - try it on a throwaway copy of your keyring: GNUPGHOME=\$(mktemp -d), import your public key, gpg --card-status, extend a subkey's expiry"
+      elif in_keyring "$SIGFPR"; then
         tell "OpenPGP: test signature with the card - enter the User PIN if asked"
         if printf 'keyaudit\n' | gpg --yes --local-user "$SIGFPR!" --output /dev/null --sign >/dev/null; then
           info "VERIFIED: the card signs"; CARD_SIGNS=1
@@ -242,7 +251,7 @@ if have gpg; then
     primcard=$(awk -F: '$1=="sec" && $15!="" && $15!="#" && $15!="+"' <<<"$KL" | grep -c .)
 
     if [ "$primcard" -gt 0 ]; then
-      unknown "GPG: a primary key lives on a card. Whether a backup was exported before it went onto the card can't be seen from here; without one, the backup key needs its own GPG key."
+      unknown "GPG: a primary key lives on a card. Whether a backup was exported before it went onto the card can't be seen from here; without one, losing that card means you can't renew or add subkeys - a new key."
     elif [ "$oncard" -gt 0 ] && [ "$stub" -gt 0 ]; then
       unknown "GPG: the primary key is a stub here. If you have an offline backup, test it in a throwaway GNUPGHOME (gpg --import, then gpg -K must show the subkeys without '>' or '#'). Only that backup lets you put the SAME subkeys on the backup card (keytocard)."
     elif [ "$oncard" -gt 0 ]; then
@@ -382,15 +391,10 @@ else
 fi
 
 # ==========================================================================
-# verify-provenance.sh installs an image only if its commit is signed by a
-# key in this file. Only the installed image's copy counts, and only entries
-# git accepts for commits (no namespaces= option, or one that lists git).
-AS=/usr/share/myblue/allowed_signers
-section "myblue updates  ->  commits signed by a key in $AS"
-if [ ! -r "$AS" ]; then
-  dim "$AS not found - skipping"
-else
-  askeys=$(awk '
+# askeys FILE  -> "type base64" of each key an allowed_signers file lets sign
+# commits: entries with no namespaces= option, or one that lists git.
+askeys() {
+  awk '
     /^[[:space:]]*(#|$)/ { next }
     {
       for (i = 2; i < NF; i++) if ($i ~ /^(ssh-|sk-|ecdsa-)/) break
@@ -398,70 +402,125 @@ else
       opts = ""; for (j = 2; j < i; j++) opts = opts " " $j
       if (opts ~ /namespaces="/ && opts !~ /namespaces="([^"]*,)?git(,[^"]*)?"/) next
       print $i, $(i + 1)
-    }' "$AS")
-  nas=$(grep -c . <<<"$askeys")
-  info "$nas key(s) can sign commits this machine installs images from"
-  aslisted=0 asok=''
+    }' "$1"
+}
+# aslisted KEYS  -> says for each FIDO2 ssh key file in ~/.ssh whether it is
+# in KEYS (askeys output). Sets ASN (how many are) and ASOK (those that also
+# worked with the key plugged in now, in the SSH section).
+aslisted() {
+  ASN=0 ASOK=''
+  local pub t b name
   for pub in "$HOME"/.ssh/*.pub; do
     t='' b=''
     read -r t b _ <"$pub" || true
     [[ $t == sk-* ]] || continue
     name=$(basename "${pub%.pub}")
-    if grep -qxF "$t $b" <<<"$askeys"; then
-      info "  $name: listed"; aslisted=$((aslisted + 1))
-      [[ $OKFILES == *" $name "* ]] && asok+=" $name"
+    if grep -qxF "$t $b" <<<"$1"; then
+      info "  $name: listed"; ASN=$((ASN + 1))
+      [[ $OKFILES == *" $name "* ]] && ASOK+=" $name"
     else
       info "  $name: not listed"
     fi
   done
+}
+
+# verify-provenance.sh installs an image only if its commit is signed by a
+# key in this file. Only the installed image's copy counts.
+AS=/usr/share/myblue/allowed_signers
+section "myblue updates  ->  commits signed by a key in $AS"
+if [ ! -r "$AS" ]; then
+  dim "$AS not found - skipping"
+else
+  keys=$(askeys "$AS")
+  nas=$(grep -c . <<<"$keys")
+  info "$nas key(s) can sign commits this machine installs images from"
+  aslisted "$keys"
   dim "a key added in the repo counts once the image with it is installed"
   [ "$nas" -eq 1 ] && missing "myblue updates: only one key in allowed_signers - lose it and updates stop. Add the backup key: myblue README, \"Another signing key\""
   if [ "$VERIFY" = 1 ]; then
-    if [ -n "$asok" ]; then confirmed "myblue updates: this key signs commits your machine installs:$asok"
+    if [ -n "$ASOK" ]; then confirmed "myblue updates: this key signs commits your machine installs:$ASOK"
     else missing "myblue updates: this key can't sign commits your machine installs - no key file that works with it is in allowed_signers. Add it: myblue README, \"Another signing key\""; fi
-  elif [ "$aslisted" -gt 0 ]; then
-    unknown "myblue updates: $aslisted listed key file(s); which physical key each belongs to is untested - rerun with --verify"
+  elif [ "$ASN" -gt 0 ]; then
+    unknown "myblue updates: $ASN listed key file(s); which physical key each belongs to is untested - rerun with --verify"
   fi
 fi
 
 # ==========================================================================
 # chezmoi update runs `git pull --verify-signatures` (the dotfiles'
-# .chezmoi.toml.tmpl). git then accepts a commit signed by any key gpg
-# trusts at least marginally, unless gpg.minTrustLevel asks for more.
-# There's no count check as for allowed_signers: one key's subkeys can be on
-# two cards, and gpg remembers only one of them. Run this on each card.
+# .chezmoi.toml.tmpl). git then accepts a commit signed by an ssh key in
+# gpg.ssh.allowedSignersFile, or by a GPG key gpg trusts at least
+# marginally, unless gpg.minTrustLevel asks for more. GPG keys get no count
+# check: one key's subkeys can be on two cards, and gpg remembers only one
+# of them. Run this on each card.
 CZ=${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.toml
-section "Dotfiles updates  ->  commits signed by a GPG key you trust"
+section "Dotfiles updates  ->  commits signed by a key in allowed_signers, or a GPG key you trust"
 if ! grep -q -- '--verify-signatures' "$CZ" 2>/dev/null; then
   info "chezmoi update doesn't check signatures (no --verify-signatures in $CZ)"
-elif ! have gpg; then
-  note "gnupg not installed - skipping"
+elif ! have git; then
+  note "git not installed - skipping"
 else
-  case $(git config --get gpg.minTrustLevel 2>/dev/null) in
-    undefined) tl='[-qnmfu]' ;;
-    never)     tl='[nmfu]' ;;
-    fully)     tl='[fu]' ;;
-    ultimate)  tl='u' ;;
-    *)         tl='[mfu]' ;;
-  esac
-  gk=$(gpg --list-keys --with-colons 2>/dev/null | awk -F: -v tl="^$tl\$" '
-    function flush() { if (ok) print "K", pf, uid; ok = 0 }
-    $1 == "pub" { flush(); ok = ($2 ~ tl && $12 ~ /S/); s = ($12 ~ /s/); t = "pub"; pf = ""; uid = ""; next }
-    $1 == "sub" { s = ($2 !~ /^[eridn]$/ && $12 ~ /s/); t = "sub"; next }
-    $1 == "fpr" { if (t == "pub") pf = $10; if (ok && s) print "S", $10; t = ""; s = 0; next }
-    $1 == "uid" && uid == "" && $2 !~ /^[er]$/ { uid = $10 }
-    END { flush() }')
-  nk=$(grep -c '^K ' <<<"$gk")
-  info "$nk GPG key(s) can sign commits chezmoi update accepts:"
-  lines "$(awk '$1 == "K" { f = $2; $1 = $2 = ""; sub(/^ +/, ""); print "  " $0 "  " f }' <<<"$gk")"
-  [ "$nk" -eq 0 ] && missing "Dotfiles updates: no GPG key here is trusted to sign them, so chezmoi update refuses every commit (the dotfiles' gpg script trusts your key)"
-  if [ -n "$SIGFPR" ] && grep -qxF "S $SIGFPR" <<<"$gk"; then
-    info "-> the card plugged in now holds one of their signing keys"
-    if [ "$CARD_SIGNS" = 1 ]; then confirmed "Dotfiles updates: this key signs commits chezmoi update accepts"
-    elif [ "$VERIFY" = 0 ]; then unknown "Dotfiles updates: this key's card holds a trusted signing key; signing untested - rerun with --verify"; fi
+  nds=0 dsok='' nk=0 cardok=0
+  das=$(git config --type=path --get gpg.ssh.allowedSignersFile 2>/dev/null)
+  if [ -z "$das" ]; then
+    info "no gpg.ssh.allowedSignersFile in git's config: only GPG signatures count"
+  elif [ ! -r "$das" ]; then
+    info "UNKNOWN - gpg.ssh.allowedSignersFile is $das, which can't be read"
   else
-    [ -n "$CARD_SN" ] && info "-> the card plugged in now holds none of them"
-    [ "$VERIFY" = 1 ] && [ "$nk" -gt 0 ] && missing "Dotfiles updates: this key can't sign commits chezmoi update accepts - no trusted signing key on its OpenPGP card. Give it a signing subkey of your key (needs the primary key's secret), or its own key, trusted on every machine"
+    keys=$(askeys "$das")
+    nds=$(grep -c . <<<"$keys")
+    info "$nds ssh key(s) in $das can sign commits chezmoi update accepts"
+    aslisted "$keys"
+    dsok=$ASOK
+    if [ "$VERIFY" = 0 ] && [ "$ASN" -gt 0 ]; then
+      unknown "Dotfiles updates: $ASN listed key file(s); which physical key each belongs to is untested - rerun with --verify"
+    fi
+  fi
+
+  if ! have gpg; then
+    dim "gnupg not installed - GPG signatures not checked"
+  else
+    case $(git config --get gpg.minTrustLevel 2>/dev/null) in
+      undefined) tl='[-qnmfu]' ;;
+      never)     tl='[nmfu]' ;;
+      fully)     tl='[fu]' ;;
+      ultimate)  tl='u' ;;
+      *)         tl='[mfu]' ;;
+    esac
+    gk=$(gpg --list-keys --with-colons 2>/dev/null | awk -F: -v tl="^$tl\$" '
+      function flush() { if (ok) print "K", pf, uid; ok = 0 }
+      $1 == "pub" { flush(); ok = ($2 ~ tl && $12 ~ /S/); s = ($12 ~ /s/); t = "pub"; pf = ""; uid = ""; next }
+      $1 == "sub" { s = ($2 !~ /^[eridn]$/ && $12 ~ /s/); t = "sub"; next }
+      $1 == "fpr" { if (t == "pub") pf = $10; if (ok && s) print "S", $10; t = ""; s = 0; next }
+      $1 == "uid" && uid == "" && $2 !~ /^[er]$/ { uid = $10 }
+      END { flush() }')
+    nk=$(grep -c '^K ' <<<"$gk")
+    if [ "$nk" -eq 0 ]; then
+      info "no GPG key here is trusted to sign them"
+    else
+      info "$nk GPG key(s) can sign commits chezmoi update accepts:"
+      lines "$(awk '$1 == "K" { f = $2; $1 = $2 = ""; sub(/^ +/, ""); print "  " $0 "  " f }' <<<"$gk")"
+      if [ -n "$SIGFPR" ] && grep -qxF "S $SIGFPR" <<<"$gk"; then
+        info "-> the card plugged in now holds one of their signing keys"
+        if [ "$CARD_SIGNS" = 1 ]; then cardok=1
+        elif [ "$VERIFY" = 0 ]; then unknown "Dotfiles updates: this key's card holds a trusted GPG signing key; signing untested - rerun with --verify"; fi
+      elif [ -n "$CARD_SN" ]; then
+        info "-> the card plugged in now holds none of their signing keys"
+      fi
+    fi
+  fi
+
+  if [ "$nds" -eq 0 ] && [ "$nk" -eq 0 ]; then
+    missing "Dotfiles updates: no key here is accepted for them, so chezmoi update refuses every commit (the dotfiles set gpg.ssh.allowedSignersFile)"
+  elif [ "$nds" -eq 1 ] && [ "$nk" -eq 0 ]; then
+    missing "Dotfiles updates: only one key in allowed_signers - lose it and chezmoi update refuses everything. Add another: dotfiles README, \"Adding or replacing a key\""
+  fi
+  if [ "$VERIFY" = 1 ] && [ $((nds + nk)) -gt 0 ]; then
+    by=$dsok; [ "$cardok" = 1 ] && by+=" OpenPGP card $CARD_SN"
+    if [ -n "$by" ]; then
+      confirmed "Dotfiles updates: this key signs commits chezmoi update accepts:$by"
+    else
+      missing "Dotfiles updates: this key can't sign commits chezmoi update accepts - no key file that works with it is in allowed_signers, and its OpenPGP card holds no trusted signing key. Add its ssh keys: dotfiles README, \"Adding or replacing a key\""
+    fi
   fi
 fi
 

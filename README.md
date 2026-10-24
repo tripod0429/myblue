@@ -13,7 +13,8 @@ supply-chain model:
    - rpm-ostree checks the cosign signature (`policy.json`).
    - `verify-provenance.sh` checks the provenance, then checks that the
      commit the image was built from is signed by a key in
-     `/usr/share/myblue/allowed_signers` (the FIDO2 key on your token).
+     `/usr/share/myblue/allowed_signers` (the `ssh:tripod0429` FIDO2 key of
+     each of your security keys).
      secureblue runs this script before automatic updates and before
      `ujust update-system`.
 
@@ -409,8 +410,9 @@ real signed, unsigned and tampered packages.
   web-UI merge. Your machine would refuse that image anyway; this just
   makes it visible straight away. Fix it as under *Pulling*.
 - **Another signing key (for example a backup token):** create a resident
-  key on it (`ssh-keygen -t ed25519-sk -O resident`) and add its `.pub` as
-  a line in `files/system/usr/share/myblue/allowed_signers`. Commit that
+  key on it (`ssh-keygen -t ed25519-sk -O resident -O verify-required -O
+  application=ssh:tripod0429`, as in the dotfiles README) and add its `.pub`
+  as a line in `files/system/usr/share/myblue/allowed_signers`. Commit that
   with your current key and push. Add it on GitHub as a signing key too.
   The new key only counts once your machine has installed that image.
 - **The build fails at "Verify secureblue base image":** secureblue's
@@ -435,12 +437,13 @@ real signed, unsigned and tampered packages.
   key, then the key's current PIN; the PIN isn't changed and nothing on the
   key is touched. Reboot with each key on its own to check it unlocks.
 - **Checking a backup key:** `ujust audit-security-key` reports what the
-  plugged-in key is used for (FIDO2 PIN and retries, the OpenPGP card, where
-  each GPG secret key lives, FIDO2 SSH key files, Git signing, which of
-  those SSH keys are in the installed `allowed_signers`, which GPG keys can
-  sign dotfiles commits that `chezmoi update` accepts, LUKS enrollments)
-  and what a backup key still lacks. It flags an `allowed_signers` with only
-  one key. Plug in one key at a time
+  plugged-in key is used for (FIDO2 PIN and retries, the OpenPGP card,
+  including a certify card, where each GPG secret key lives, FIDO2 SSH key
+  files, Git signing, which of those SSH keys are in the installed
+  `allowed_signers`, which keys can sign dotfiles commits that `chezmoi
+  update` accepts, from git's `gpg.ssh.allowedSignersFile` or trusted GPG
+  keys, LUKS enrollments) and what a backup key still lacks. It flags an
+  `allowed_signers` with only one key, for either. Plug in one key at a time
   (USBGuard blocks each new one until you allow it), run it once per key and
   compare; `ujust audit-security-key --help` shows how. `--verify` tests
   signing, decryption and, with `--root` (through run0), a dry-run disk
