@@ -378,6 +378,7 @@ jobs:
             github.com:443
             api.github.com:443
             release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             tuf-repo-cdn.sigstore.dev:443
@@ -446,6 +447,7 @@ jobs:
             github.com:443
             api.github.com:443
             release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             tuf-repo-cdn.sigstore.dev:443
