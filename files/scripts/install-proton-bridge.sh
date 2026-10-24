@@ -5,9 +5,9 @@
 set -euo pipefail
 
 feed=https://proton.me/download/current_version_linux.json
-# Proton's Bridge signing key, vendored in this repo. The verifier pins
-# fingerprint D51E 64D3 E63E DC3E EF78 64CE E2C7 5D68 E623 4B07.
+# Proton's Bridge signing key, vendored in this repo, and its fingerprint.
 key="${CONFIG_DIRECTORY:-/tmp/files}/keys/proton-bridge.asc"
+fingerprint=D51E64D3E63EDC3EEF7864CEE2C75D68E6234B07
 
 url=$(curl --proto '=https' --proto-redir '=https' -fsSL --retry 3 "$feed" | jq -er '.RpmFile')
 case "$url" in
@@ -22,7 +22,8 @@ curl --proto '=https' --proto-redir '=https' -fsSL --retry 3 -o "$rpm_file" "$ur
 
 # Verify BEFORE importing into the system keyring or installing anything.
 # Existing Fedora/COPR keys must not authenticate a Bridge download.
-bash "${CONFIG_DIRECTORY:-/tmp/files}/scripts/verify-proton-bridge.sh" "$rpm_file" "$key"
+bash "${CONFIG_DIRECTORY:-/tmp/files}/scripts/verify-rpm.sh" \
+  "$rpm_file" "$key" "$fingerprint" protonmail-bridge
 
 # DNF still rechecks the verified local RPM. This import is deliberately
 # after the isolated check; the public key remains in the image's RPM DB.

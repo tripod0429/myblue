@@ -4,7 +4,7 @@ My secureblue image, built with BlueBuild. It follows secureblue's own
 supply-chain model:
 
 1. **Commits** to `main` must be signed (GitHub ruleset).
-2. **CI** restricts outbound runner traffic, tests Bridge verification,
+2. **CI** restricts outbound runner traffic, tests RPM verification,
    checks the secureblue base image, then builds, signs with the
    cosign key and publishes SLSA provenance. Provenance is a statement
    signed by GitHub saying this image was built by this repo's workflow,
@@ -26,14 +26,14 @@ doesn't count.
 | File | Purpose |
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
-| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh`, shell settings (`/etc/profile.d/myblue.sh`) |
+| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files |
 | `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key` |
-| `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge install, checks, `policy.json` additions |
+| `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge and Mullvad installs, their RPM verifier, checks, `policy.json` additions |
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
-| `files/keys/proton-bridge.asc` | Proton's Bridge signing key, for checking the Bridge RPM at build time |
+| `files/keys/` | Proton's Bridge and Mullvad's code signing keys, for checking their RPMs at build time |
 | `.github/workflows/build.yml` | Daily build plus an hourly check for a new secureblue base; base-image check, signing, provenance |
 | `.github/dependabot.yml` | Weekly bumps for the pinned actions, in one PR |
-| `tests/test_proton_bridge.py` | Offline regression tests for Bridge verification and installation ordering |
+| `tests/test_signed_rpms.py` | Offline regression tests for Bridge and Mullvad verification and installation ordering |
 | `bootstrap/trust-myblue.sh` | One-time: lets stock secureblue accept your image |
 | `keys/secureblue.pub` | secureblue's public key, for checking the base image (you add it) |
 | `cosign.pub` | Your public signing key (you add it) |
@@ -184,7 +184,10 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
    ```
 4. **Remove leftover layering.** `rpm-ostree status` lists packages you
    had layered that are now in the image as inactive requests. Remove
-   them with `rpm-ostree uninstall <pkgs>`.
+   them with `rpm-ostree uninstall <pkgs>`. That includes `mullvad-vpn`;
+   your Mullvad login and settings stay. The Mullvad repo that
+   `ujust install-vpn` turned on is no longer needed:
+   `run0 sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/mullvad.repo`.
 5. **Test the update check:** `/usr/libexec/secureblue/verify-provenance.sh`
    should exit 0, print a `PASSED` line from slsa-verifier, a `Good "git"
    signature` line for your key, and `built from <commit>, signed by an
@@ -216,6 +219,44 @@ Applications*. Don't add Bridge there by hand: that copy starts without
 otherwise run newer versions it downloads into your home folder instead
 of the image's. `myblue-setup` lists both settings, and Peergos's
 equivalent, *Start on boot*.
+
+## Mullvad VPN
+
+The image has Mullvad's daemon and CLI, not its GUI.
+`files/scripts/install-mullvad.sh` follows Mullvad's link to the current
+stable RPM (`mullvad.net/en/download/app/rpm/latest`, which redirects to
+`cdn.mullvad.net`). It checks the RPM with Bridge's verifier against
+`files/keys/mullvad.asc`, Mullvad's code signing key (fingerprint `A119
+8702 FC3E 0A09 A9AE 5B75 D5A1 D4F2 66DE 8DDF`), and installs it. Each daily
+build picks up the latest version. Mullvad's dnf repo isn't used because
+DNF would accept a package from it signed by any key the system trusts.
+Its GitHub releases aren't used either: the latest one there is often the
+Android app.
+
+The package puts everything but the binaries in `/opt/Mullvad VPN`. On
+these images `/opt` links to `/var/opt`, which image updates leave alone,
+so the script installs it into `/usr/lib/opt/Mullvad VPN`, as rpm-ostree
+does when layering. `/usr/lib/tmpfiles.d/myblue-mullvad.conf` links
+`/opt/Mullvad VPN` there at boot. The script then deletes the Electron GUI
+(about 350 MB), its launcher and its icons, keeping `resources/`, which the
+daemon reads. It enables `mullvad-daemon` and `mullvad-early-boot-blocking`.
+- **Login:** `mullvad account login`, then `mullvad auto-connect set on`
+  and `mullvad connect`. `myblue-setup` prints these.
+- **DNS:** a VPN's DNS doesn't work with Unbound, secureblue's other
+  resolver. `myblue-setup` offers to switch to systemd-resolved, as
+  `ujust install-vpn` did.
+- **Split tunnelling** (`mullvad-exclude`) doesn't work: secureblue's
+  cleanup removes its setuid bit, as for every setuid binary in the image.
+
+secureblue removed `ujust install-vpn` for Fedora 45 (secureblue#2731),
+along with Mullvad's repo file.
+
+## Steam
+
+secureblue has an open pull request removing `ujust install-steam`
+(secureblue#2749). `myblue-setup` does what its Flatpak method did: it
+installs Steam from the unfiltered Flathub remote and sets its overrides.
+It also offers Xwayland and ptrace, and removes `ia32_emulation=0`.
 
 ## RamaLama
 

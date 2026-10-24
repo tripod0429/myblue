@@ -42,6 +42,7 @@ modules:
   # - myblue-setup, the one-time setup helper
   # - verify-provenance.sh, replacing secureblue's so updates check
   #   this repo's provenance instead of secureblue's
+  # - the tmpfiles.d link from /opt to Mullvad's files in /usr/lib/opt
   - type: files
     source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
     files:
@@ -59,11 +60,14 @@ modules:
   # snippet on its own.
   # - install-proton-bridge.sh: latest Proton Mail Bridge, from Proton's
   #   signed RPM (no dnf repo exists), checked against files/keys/
+  # - install-mullvad.sh: latest Mullvad VPN daemon and CLI, without the
+  #   GUI, from Mullvad's signed RPM, checked the same way
   # - myblue-image-setup.sh: build-time checks, permissions, policy.json
   - type: script
     source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
     scripts:
       - install-proton-bridge.sh
+      - install-mullvad.sh
       - myblue-image-setup.sh
       # Reapply secureblue's final package hardening after our installs.
       # Vendored unchanged; upstream/README.md records the source commit.

@@ -61,7 +61,7 @@ jobs:
             -c gpg.openpgp.program=false -c gpg.x509.program=false \
             verify-commit HEAD
 
-      - name: Test Bridge verification
+      - name: Test RPM verification
         run: python3 -m unittest discover -s tests -v
 
       - name: Install slsa-verifier
@@ -118,11 +118,11 @@ jobs:
       digest: ${{ steps.digest.outputs.digest }}
     steps:
       # secureblue's allowlist at 39502947d5612c1fb674cf5cdaff9f6a3ab271c8,
-      # with GitHub's API and Proton added for this build. In order: Ubuntu
-      # packages; GitHub Actions, release binaries and verification keys;
-      # container registries and BlueBuild; package repositories and Proton
-      # Mail Bridge; Fedora mirrors. Keep comments out of the list itself:
-      # Harden-Runner reads every word in it as a domain.
+      # with GitHub's API, Proton and Mullvad added for this build. In order:
+      # Ubuntu packages; GitHub Actions, release binaries and verification
+      # keys; container registries and BlueBuild; package repositories, Proton
+      # Mail Bridge and Mullvad; Fedora mirrors. Keep comments out of the list
+      # itself: Harden-Runner reads every word in it as a domain.
       - name: Restrict runner egress
         uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
@@ -164,6 +164,8 @@ jobs:
             nvidia.github.io:443
             keyserver.ubuntu.com:443
             proton.me:443
+            mullvad.net:443
+            cdn.mullvad.net:443
             abqix.mm.fcix.net:443
             cfhcable.mm.fcix.net:443
             codingflyboy.mm.fcix.net:443
