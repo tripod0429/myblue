@@ -5,10 +5,12 @@ supply-chain model:
 
 1. **Commits** to `main` must be signed (GitHub ruleset).
 2. **CI** restricts outbound runner traffic, tests RPM verification,
-   checks the secureblue base image, then builds, signs with the
-   cosign key and publishes SLSA provenance. Provenance is a statement
-   signed by GitHub saying this image was built by this repo's workflow,
-   from `main`.
+   checks the secureblue base image, then builds and pushes the image.
+   From there on everything goes by the digest it pushed, never by a tag:
+   a separate job, the only one with the cosign key, signs that digest,
+   GitHub publishes SLSA provenance for it, and only then does `latest`
+   move to it. Provenance is a statement signed by GitHub saying this
+   image was built by this repo's workflow, from `main`.
 3. **The machine** checks three things before every update:
    - rpm-ostree checks the cosign signature (`policy.json`).
    - `verify-provenance.sh` checks the provenance, then checks that the
@@ -475,9 +477,12 @@ real signed, unsigned and tampered packages.
 
 - The FIDO2 key on your token is the root of trust for what gets
   installed. Someone who controls your GitHub account can still stop
-  updates (break the build, delete the package), and can read the cosign
-  key through a workflow on `main`, but can't get an image past the update
-  check.
+  updates (break the build, delete the package) and can read the cosign
+  key through a workflow on `main`. CI signs and attests only the digest
+  it built, so they can't get it to vouch for an image of their own.
+  Three gaps remain on your machine's side, listed below: the moment
+  between the check and the download, a plain `rpm-ostree upgrade`, and
+  the first install.
 - Only the commit an image was built from is checked. Earlier commits are
   trusted because you signed on top of them, which is why `git pull`
   refuses commits you didn't sign.
@@ -493,9 +498,15 @@ real signed, unsigned and tampered packages.
   review if another trusted reviewer becomes available; do not put a manual
   approval gate on every scheduled build.
 - The provenance and commit checks run on the two normal update paths.
-  Typing `rpm-ostree upgrade` by hand skips them, and then only the cosign
-  signature is checked.
+  A plain `rpm-ostree upgrade` skips them, and then only the cosign
+  signature is checked. secureblue's polkit rule lets any program running
+  as you start one without a password.
 - The checks look at the digest `latest` points to, and the image is
-  fetched a moment later. secureblue's updater has the same small window.
+  fetched a moment later. secureblue's updater has the same window. With
+  the cosign key and write access to the registry, someone could swap
+  `latest` in between.
+- The first install (step 6) checks the signature and provenance by hand,
+  but not the commit signature, and rebases to `latest` rather than to the
+  digest it checked.
 - Once `policy.json` can match GitHub workflow identities (upstream work
   in progress), rpm-ostree could enforce the provenance check itself.

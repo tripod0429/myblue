@@ -12,8 +12,7 @@ on:
 
 permissions: {}
 
-# Never build two images at once: the digest read after the push must be
-# the one this run produced.
+# One run at a time, so `latest` moves in the order runs started.
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -22,7 +21,8 @@ jobs:
   # Pushes, manual runs and the daily schedule always build. The hourly
   # schedule builds only when secureblue's base differs from the one the
   # published image was built on, or when that image fails its provenance
-  # check (e.g. an earlier run stopped before provenance was attached).
+  # check (`latest` only moves once provenance is attached, so that means
+  # the tag was changed outside this workflow).
   check:
     name: Check for a new base
     runs-on: ubuntu-latest
@@ -103,16 +103,18 @@ jobs:
           echo "build=${build}: ${reason}"
           echo "build=${build}" >> "$GITHUB_OUTPUT"
 
+  # Everything after the build goes by the digest this job pushed, never by
+  # a tag: someone with write access to the registry can move a tag at any
+  # moment. This job runs BlueBuild and everything it downloads, so it never
+  # sees the signing key; signing is a job of its own.
   build:
-    name: Build and sign
+    name: Build and push by digest
     needs: check
     if: needs.check.outputs.build == 'true'
     runs-on: ubuntu-latest # standard runner; larger runners are billed
-    environment: release # holds SIGNING_SECRET, limited to main
     permissions:
       contents: read
       packages: write
-      id-token: write
     outputs:
       image: ${{ steps.recipe.outputs.image }}
       digest: ${{ steps.digest.outputs.digest }}
@@ -290,43 +292,121 @@ jobs:
           # reinstall slsa-verifier without clashing with this copy.
           rm -rf ~/.slsa/
 
-      - name: Build, sign and push
+      - name: Prepare archive folder
+        run: mkdir -p "$RUNNER_TEMP/oci"
+
+      # BlueBuild only builds, into an OCI archive. Left to push, it would
+      # sign whatever its first tag points to in the registry after the push
+      # (v0.9.37 looks the tag up again), and the digest to attest would have
+      # to be read back from a tag as well.
+      - name: Build
         uses: blue-build/github-action@c295af864f2802fc6aea227507af43d35823db81 # v1.13.0
         with:
           # Same CLI version as secureblue, verified before use. Bump it when they do.
           cli_version: v0.9.37
           verify_install: true
-          retry_push_count: 3
           recipe: recipe.yml
-          cosign_private_key: ${{ secrets.SIGNING_SECRET }}
+          push: false
+          build_opts: --archive ${{ runner.temp }}/oci
           registry_token: ${{ github.token }}
           skip_checkout: true
           maximize_build_space: true
 
-      - name: Read pushed digest
+      # The digest is the one skopeo wrote, computed from the archive, and
+      # --preserve-digests makes skopeo fail rather than change it. `build`
+      # is a working tag nothing reads; `latest` moves only in `promote`.
+      - name: Push by digest
         id: digest
         env:
           IMAGE: ${{ steps.recipe.outputs.image }}
           TOKEN: ${{ github.token }}
+          TMPDIR: ${{ runner.temp }}
         run: |
-          printf '%s' "$TOKEN" | regctl registry login ghcr.io --user "$GITHUB_ACTOR" --pass-stdin
-          echo "digest=$(regctl image digest "${IMAGE}:latest")" >> "$GITHUB_OUTPUT"
+          shopt -s nullglob
+          archive=("$RUNNER_TEMP"/oci/*)
+          if [[ ${#archive[@]} -ne 1 ]]; then
+            echo "::error::expected one archive in $RUNNER_TEMP/oci, found ${#archive[@]}"
+            exit 1
+          fi
+          command -v skopeo > /dev/null || { sudo apt-get update -q && sudo apt-get install -yq skopeo; }
+          printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          skopeo copy --all --preserve-digests --retry-times 3 \
+            --digestfile "$RUNNER_TEMP/digest" \
+            "oci-archive:${archive[0]}" "docker://${IMAGE}:build"
+          digest=$(cat "$RUNNER_TEMP/digest")
+          if [[ ! $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::skopeo wrote no digest: '${digest}'"
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
-      # BlueBuild looks up the base digest again when it builds. Fail if
-      # secureblue pushed a new image in between, so the unverified build
-      # gets no provenance and your machine won't take it.
+      # BlueBuild looks up the base digest again when it builds. Stop if
+      # secureblue pushed a new image in between: the build then gets no
+      # signature, no provenance, and never becomes `latest`.
       - name: Check base image of the build
         env:
           IMAGE: ${{ steps.recipe.outputs.image }}
           DIGEST: ${{ steps.digest.outputs.digest }}
           VERIFIED: ${{ steps.base.outputs.digest }}
+          TOKEN: ${{ github.token }}
         run: |
+          printf '%s' "$TOKEN" | regctl registry login ghcr.io --user "$GITHUB_ACTOR" --pass-stdin
           built_on=$(regctl image config "${IMAGE}@${DIGEST}" |
             jq -r '.config.Labels["org.opencontainers.image.base.digest"]')
           if [[ $built_on != "$VERIFIED" ]]; then
             echo "::error::built on base ${built_on}, but verified ${VERIFIED}"
             exit 1
           fi
+
+  # Signs exactly the digest the build pushed, on a fresh runner that runs
+  # nothing but cosign.
+  sign:
+    name: Sign
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release # holds SIGNING_SECRET, limited to main
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Restrict runner egress
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            release-assets.githubusercontent.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            tuf-repo-cdn.sigstore.dev:443
+            rekor.sigstore.dev:443
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v2.6.0
+
+      # cosign v2 writes signatures in the format policy.json on your machine
+      # reads. v3 would need --new-bundle-format=false --use-signing-config=false,
+      # as BlueBuild passes it.
+      - name: Sign by digest
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TOKEN: ${{ github.token }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PASSWORD: ""
+        run: |
+          printf '%s' "$TOKEN" | cosign login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          cosign sign --yes --recursive --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${DIGEST}"
+          cosign verify --key cosign.pub "${IMAGE}@${DIGEST}" > /dev/null
 
   # Signed statement from GitHub that this digest was built by this
   # workflow, from this repo and branch. verify-provenance.sh on your
@@ -346,3 +426,62 @@ jobs:
       registry-username: ${{ github.actor }}
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  # Only now does `latest`, the tag your machine follows, move: to the digest
+  # this run built, once its signature and provenance check out.
+  promote:
+    name: Tag latest
+    needs: [build, sign, provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Restrict runner egress
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            release-assets.githubusercontent.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            tuf-repo-cdn.sigstore.dev:443
+            rekor.sigstore.dev:443
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v2.6.0
+
+      - name: Install slsa-verifier
+        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+      - name: Install regctl
+        uses: regclient/actions/regctl-installer@dd58ad94f76adb73d8ac1bf75ed25f01545d5b32 # v0.2.0
+
+      - name: Verify and tag latest
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TOKEN: ${{ github.token }}
+        run: |
+          cosign verify --key cosign.pub "${IMAGE}@${DIGEST}" > /dev/null
+          slsa-verifier verify-image --source-uri "github.com/${GITHUB_REPOSITORY,,}" \
+            --source-branch main "${IMAGE}@${DIGEST}" > /dev/null
+          printf '%s' "$TOKEN" | regctl registry login ghcr.io --user "$GITHUB_ACTOR" --pass-stdin
+          regctl image copy "${IMAGE}@${DIGEST}" "${IMAGE}:latest"
+          # Only a report: the tag can be moved again at any time, which is
+          # why your machine checks the digest it installs.
+          now=$(regctl image digest "${IMAGE}:latest")
+          if [[ $now != "$DIGEST" ]]; then
+            echo "::error::latest points to ${now} right after tagging ${DIGEST}"
+            exit 1
+          fi
