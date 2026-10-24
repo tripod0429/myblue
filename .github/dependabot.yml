@@ -1,7 +1,12 @@
 version: 2
 updates:
-  # Proposes bumps for the pinned actions in .github/workflows/.
+  # Proposes bumps for the pinned actions in .github/workflows/, all in one
+  # weekly PR. Merge it locally, not in the web UI (see README).
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"

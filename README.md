@@ -32,7 +32,7 @@ doesn't count.
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
 | `files/keys/proton-bridge.asc` | Proton's Bridge signing key, for checking the Bridge RPM at build time |
 | `.github/workflows/build.yml` | Daily build plus an hourly check for a new secureblue base; base-image check, signing, provenance |
-| `.github/dependabot.yml` | Weekly bumps for the pinned actions |
+| `.github/dependabot.yml` | Weekly bumps for the pinned actions, in one PR |
 | `tests/test_proton_bridge.py` | Offline regression tests for Bridge verification and installation ordering |
 | `bootstrap/trust-myblue.sh` | One-time: lets stock secureblue accept your image |
 | `keys/secureblue.pub` | secureblue's public key, for checking the base image (you add it) |
@@ -240,11 +240,18 @@ in `web-apps.json` at `http://127.0.0.1:8080/`. That port has to match
 `/etc/skel`'s versions (or empty) and makes them immutable. Backups go to
 `~/bash_env_files`. Turning it off only lifts the immutability, so anything
 in those files is lost each time it's turned on. So the settings you'd put
-there (gpg-agent as SSH agent, ghcup on `PATH`, the opencode alias) are in
-`files/system/etc/profile.d/myblue.sh`, the same place secureblue ships its
-own (`gnome-disable-jit.sh`, `xx-bash-prompt-command.sh`). Being in the
-image, they're root-owned and signed like the rest of it. The dotfiles
-leave `~/.bashrc` and `~/.bash_profile` to secureblue.
+there (gpg-agent as SSH agent, ghcup on `PATH`, the claude and opencode
+aliases) are in `files/system/etc/profile.d/myblue.sh`, the same place
+secureblue ships its own (`gnome-disable-jit.sh`,
+`xx-bash-prompt-command.sh`). Being in the image, they're root-owned and
+signed like the rest of it. The dotfiles leave `~/.bashrc` and
+`~/.bash_profile` to secureblue.
+
+The `claude` and `opencode` aliases start them inside nono, with the
+`claude-haskell` and `opencode-haskell` profiles from the dotfiles. Both
+agents can write their own config, and hooks in it would run
+with your full access in a session started without nono. `command claude`
+skips the alias.
 
 Don't put anything there that evaluates user-writable config at shell
 start (`mise activate`, `direnv hook` and the like): malware running as you
@@ -292,9 +299,10 @@ real signed, unsigned and tampered packages.
   default) and push. The image builds and arrives with the next automatic
   update, then a reboot. Your touch approves whatever is staged, so check
   `git diff --staged` first.
-- **Dependabot PRs:** don't merge them in the web UI. GitHub would sign
-  that merge, and your machine refuses images built from it. Review and
-  merge locally instead; GitHub then marks the PR as merged:
+- **Dependabot PRs:** they arrive as one PR a week with all action bumps.
+  Don't merge it in the web UI. GitHub would sign that merge, and your
+  machine refuses images built from it. Review and merge locally instead;
+  GitHub then marks the PR as merged:
   ```sh
   git fetch origin pull/<N>/head
   git log -p HEAD..FETCH_HEAD          # what changed

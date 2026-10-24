@@ -17,6 +17,11 @@ if [ "$(/usr/bin/id -u)" != 0 ]; then
         *) export PATH="$HOME/.ghcup/bin:$PATH" ;;
     esac
 
+    # Start the coding agents inside nono. They can write their own config
+    # (hooks, plugins), which would run unsandboxed in a session started
+    # without it. `command claude` skips the sandbox.
+    alias claude='nono run --profile claude-haskell -- claude'
+
     # secureblue sets JavaScriptCoreUseJIT=0 globally; opencode's Bun needs the JIT for bun:ffi.
-    alias opencode='env -u JavaScriptCoreUseJIT opencode'
+    alias opencode='nono run --profile opencode-haskell -- env -u JavaScriptCoreUseJIT opencode'
 fi
