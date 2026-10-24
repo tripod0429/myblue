@@ -224,11 +224,14 @@ containers, using an image from `quay.io/ramalama` that matches its minor
 version. Those images aren't signed (no cosign signatures or attachments),
 and secureblue's `policy.json` rejects anything it doesn't list, so
 `myblue-image-setup.sh` allows `quay.io/ramalama/ramalama`. That is the
-Vulkan image RamaLama picks for this machine's AMD GPU, and the scope allows
-only it. If RamaLama starts picking another image (ROCm, say), the pull fails
-with a policy error. Add that repo on purpose, not the whole namespace.
+Vulkan image RamaLama picks for AMD GPUs (both the laptop's and the
+desktop's), and the scope allows only it. If RamaLama starts picking another
+image (ROCm, say), the pull fails with a policy error. Add that repo on
+purpose, not the whole namespace. ROCm would also need `/dev/kfd`, which the
+dotfiles' quadlet drop-in leaves out.
 
-The model service that starts at login is a quadlet in the dotfiles.
+The model service that starts at login is a quadlet in the dotfiles. It
+has no outbound network and only the GPU's `/dev/dri`.
 Its chat UI (llama.cpp's `llama-ui`, a full PWA) is a Trivalent web app
 in `web-apps.json` at `http://127.0.0.1:8080/`. That port has to match
 `ramalama.port` in the dotfiles' `packages.yaml`.
