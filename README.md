@@ -26,8 +26,8 @@ doesn't count.
 | File | Purpose |
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
-| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
-| `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key` |
+| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh`, `keyaudit.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
+| `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key`, `audit-security-key` |
 | `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge and Mullvad installs, their RPM verifier, checks, `policy.json` additions |
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
 | `files/keys/` | Proton's Bridge and Mullvad's code signing keys, for checking their RPMs at build time |
@@ -429,6 +429,18 @@ real signed, unsigned and tampered packages.
   `ujust add-luks-fido2-key`. It asks for the disk passphrase or recovery
   key, then the key's current PIN; the PIN isn't changed and nothing on the
   key is touched. Reboot with each key on its own to check it unlocks.
+- **Checking a backup key:** `ujust audit-security-key` reports what the
+  plugged-in key is used for (FIDO2 PIN and retries, the OpenPGP card, where
+  each GPG secret key lives, FIDO2 SSH key files, Git signing, which of
+  those SSH keys are in the installed `allowed_signers`, which GPG keys can
+  sign dotfiles commits that `chezmoi update` accepts, LUKS enrollments)
+  and what a backup key still lacks. It flags an `allowed_signers` with only
+  one key. Plug in one key at a time
+  (USBGuard blocks each new one until you allow it), run it once per key and
+  compare; `ujust audit-security-key --help` shows how. `--verify` tests
+  signing, decryption and, with `--root` (through run0), a dry-run disk
+  unlock. It asks for PINs and touches, and a wrong PIN uses up a retry.
+  Nothing on the keys or the disk is changed.
 - **Updates stop arriving:** `journalctl -u rpm-ostreed-automatic` shows
   why. secureblue also warns you once the system is a week out of date.
   `is not signed by a key in /usr/share/myblue/allowed_signers` means the

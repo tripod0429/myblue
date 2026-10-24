@@ -10,7 +10,7 @@ done
 
 chmod 0755 /usr/libexec/secureblue/verify-provenance.sh /usr/bin/myblue-setup \
   /usr/bin/myblue-opencode /usr/bin/myblue-agent-check \
-  /usr/libexec/myblue/luks-add-fido2-key.sh
+  /usr/libexec/myblue/luks-add-fido2-key.sh /usr/libexec/myblue/keyaudit.sh
 
 # Unsigned images I pull with podman. `ujust audit-secureblue` warns
 # about these scopes; that is expected. quay.io/ramalama/ramalama is

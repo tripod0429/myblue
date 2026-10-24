@@ -36,6 +36,9 @@ modules:
         # Local LLMs in rootless podman containers. The model service that
         # starts at login is a quadlet in the dotfiles.
         - ramalama
+        # fido2-token, for `ujust audit-security-key`. The image already has
+        # its library (libfido2); this is only the command-line tool.
+        - fido2-tools
 
   # files/system/ is copied to / :
   # - Trivalent managed policies (correct SELinux labels, no restorecon)
@@ -43,6 +46,7 @@ modules:
   # - verify-provenance.sh, replacing secureblue's so updates check
   #   this repo's provenance instead of secureblue's
   # - the tmpfiles.d link from /opt to Mullvad's files in /usr/lib/opt
+  # - keyaudit.sh, behind `ujust audit-security-key`
   - type: files
     source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
     files:
@@ -51,7 +55,8 @@ modules:
 
   # files/justfiles/ is added to ujust: add-luks-fido2-key enrolls another
   # FIDO2 key for disk unlock (secureblue's setup-luks-fido2-unlock replaces
-  # the enrolled key instead).
+  # the enrolled key instead); audit-security-key reports what the plugged-in
+  # key is used for and what a backup key still needs.
   - type: justfiles
     source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
     validate: true
