@@ -7,6 +7,9 @@ cosign.private
 Containerfile*
 /.bluebuild-scripts_*
 
+# Generated before building; installed as the image's source-history floor.
+/files/system/usr/share/myblue/source-commit
+
 # Generated Python bytecode from the regression tests.
 __pycache__/
 *.py[cod]

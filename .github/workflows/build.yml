@@ -61,7 +61,7 @@ jobs:
             -c gpg.openpgp.program=false -c gpg.x509.program=false \
             verify-commit HEAD
 
-      - name: Test RPM verification
+      - name: Test security checks
         run: python3 -m unittest discover -s tests -v
 
       - name: Install slsa-verifier
@@ -294,6 +294,16 @@ jobs:
 
       - name: Prepare archive folder
         run: mkdir -p "$RUNNER_TEMP/oci"
+
+      # Copied into /usr/share/myblue by the files module. The running image
+      # uses its own source commit as the floor for future source histories.
+      - name: Record image source commit
+        run: |
+          if [[ $(git rev-parse HEAD) != "$GITHUB_SHA" ]]; then
+            echo "::error::checkout does not match the workflow source commit"
+            exit 1
+          fi
+          printf '%s\n' "$GITHUB_SHA" > files/system/usr/share/myblue/source-commit
 
       # BlueBuild only builds, into an OCI archive. Left to push, it would
       # sign whatever its first tag points to in the registry after the push

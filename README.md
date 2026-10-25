@@ -17,6 +17,10 @@ supply-chain model:
      commit the image was built from is signed by a key in
      `/usr/share/myblue/allowed_signers` (the `ssh:tripod0429` FIDO2 key of
      each of your security keys).
+     It also requires that source commit to equal or descend from the
+     running image's source commit, recorded in
+     `/usr/share/myblue/source-commit`. Older signed workflows cannot be
+     replayed through this check.
      secureblue runs this script before automatic updates and before
      `ujust update-system`.
 
@@ -29,7 +33,7 @@ doesn't count.
 | File | Purpose |
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
-| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh`, `keyaudit.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
+| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh`, its `allowed_signers` and generated `source-commit`, `luks-add-fido2-key.sh`, `keyaudit.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
 | `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key`, `audit-security-key` |
 | `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge and Mullvad installs, their RPM verifier, checks, `policy.json` additions |
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
@@ -37,6 +41,8 @@ doesn't count.
 | `.github/workflows/build.yml` | Daily build plus an hourly check for a new secureblue base; base-image check, signing, provenance |
 | `.github/dependabot.yml` | Weekly bumps for the pinned actions, in one PR |
 | `tests/test_signed_rpms.py` | Offline regression tests for Bridge and Mullvad verification and installation ordering |
+| `tests/test_provenance.py` | Offline source-history and signature checks with real Git history and throwaway SSH keys; CI source metadata checks |
+| `tests/test_setup_and_agent_checks.py` | Offline checks for agent-config confirmation and preserving existing setup hardening |
 | `bootstrap/trust-myblue.sh` | One-time: lets stock secureblue accept your image |
 | `keys/secureblue.pub` | secureblue's public key, for checking the base image (you add it) |
 | `cosign.pub` | Your public signing key (you add it) |
@@ -199,6 +205,14 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
 On a fresh machine, install stock secureblue first, then start at step 2.
 That way secureblue's first-boot cleanup has already run.
 
+`myblue-setup` asks before making changes. On a rerun it preserves an
+existing USBGuard policy (and leaves the service state unchanged), skips
+MAC randomization when its configuration already exists, and skips Bash
+environment lockdown when `.bashrc` is already immutable. If it cannot
+determine the Bash lockdown state, it skips that step rather than risk
+unlocking it. Use the upstream commands directly for intentional changes
+to existing configuration.
+
 ## Proton Mail Bridge
 
 Proton has no dnf repo for Bridge, only a signed RPM.
@@ -285,6 +299,37 @@ Its chat UI (llama.cpp's `llama-ui`, a full PWA) is a Trivalent web app
 in `web-apps.json` at `http://127.0.0.1:8080/`. That port has to match
 `ramalama.port` in the dotfiles' `packages.yaml`.
 
+## Source-history protection
+
+CI records its source commit in `/usr/share/myblue/source-commit` inside
+the image. Before an update, the running image's verifier checks that the
+candidate source is the same commit or a descendant of it, as well as
+checking the signature against the running image's allowed signers. It
+fetches the candidate's Git history to prove ancestry; a current branch
+name or an image label is not sufficient.
+
+This allows scheduled rebuilds without a new commit, but refuses older
+signed configurations and divergent histories. To restore old settings,
+make a new signed revert commit on the current history instead of resetting
+the branch to an old commit. The protection starts after you boot the first
+image containing this verifier and its source marker.
+
+This does not restrict OSTree recovery: you can still select a retained
+previous deployment in the boot menu or use `rpm-ostree rollback`. No
+boot-time source-history restriction is added.
+
+The marker is generated, not committed: a commit cannot contain its own
+hash. CI checks that the checkout matches the workflow's source commit
+before recording it. For a local test build, regenerate it before building:
+
+```sh
+git rev-parse HEAD > files/system/usr/share/myblue/source-commit
+bluebuild build recipes/recipe.yml
+```
+
+The build and update check fail if the marker is missing or invalid. It is
+not a substitute for provenance or commit-signature verification.
+
 ## Shell settings
 
 `ujust toggle-bash-environment-lockdown` resets `~/.bashrc`,
@@ -334,6 +379,10 @@ skips the alias.
   them. It compares them with the dotfiles (`chezmoi status` and
   `chezmoi unmanaged`) and asks before starting the agent if a file
   changed or a new one appeared.
+  OpenCode's skills directory is included, and its paths respect
+  `XDG_CONFIG_HOME`. Missing chezmoi/dotfiles or a failed check also require
+  explicit confirmation. Without an affirmative answer, the agent will not
+  start.
 
 Don't put anything there that evaluates user-writable config at shell
 start (`mise activate`, `direnv hook` and the like): malware running as you
@@ -374,6 +423,13 @@ system-trusted signer, package identity, URL validation and install ordering.
 They use mock package managers and do not install packages or change the
 system keyring; actual RPM signature verification also needs testing with
 real signed, unsigned and tampered packages.
+
+The source-history tests use local Git repositories and throwaway software
+SSH keys, with mocked registry/provenance responses. They cover same-commit
+rebuilds, descendants and merges, rejection of old/divergent/unrelated
+sources, unsigned or untrusted signers, missing metadata and failed checks.
+The launch/setup tests mock chezmoi, ujust and filesystem-attribute checks;
+they do not alter the host's hardening or start agents.
 
 ## Day to day
 
@@ -455,6 +511,9 @@ real signed, unsigned and tampered packages.
   why. secureblue also warns you once the system is a week out of date.
   `is not signed by a key in /usr/share/myblue/allowed_signers` means the
   newest image was built from a commit you didn't sign; see *Pulling*.
+  `does not descend from installed source` means the candidate uses older
+  or unrelated source history. Publish a build from the current history;
+  use a new signed revert commit if you want to undo a configuration change.
 - **Following secureblue's BlueBuild versions:** Dependabot can't bump the
   BlueBuild CLI (`cli_version` in `build.yml`) or the modules image digest
   (`source:` on each module in the recipe). When secureblue bumps them, in
@@ -483,9 +542,13 @@ real signed, unsigned and tampered packages.
   Three gaps remain on your machine's side, listed below: the moment
   between the check and the download, a plain `rpm-ostree upgrade`, and
   the first install.
-- Only the commit an image was built from is checked. Earlier commits are
+- Only the source tip's signature is checked. Earlier commits are
   trusted because you signed on top of them, which is why `git pull`
   refuses commits you didn't sign.
+- The source-history floor comes from the booted image. Manually booting
+  an older deployment also restores its older verifier and floor; this is
+  not hardware-backed rollback protection. It checks configuration ancestry,
+  not package versions or the age of the secureblue base image.
 - If you lose every key in `allowed_signers`, updates stop. To recover:
   1. Add a new key to the file and to GitHub as a signing key.
   2. Commit the change, signed with the new key, and push.
