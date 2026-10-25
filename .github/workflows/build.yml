@@ -12,7 +12,10 @@ on:
 
 permissions: {}
 
-# One run at a time, so `latest` moves in the order runs started.
+# One run at a time, so `latest` moves in the order runs started. Every job
+# has a timeout-minutes well above its usual time, so a stuck one fails
+# instead of holding up later runs for GitHub's default of 6 hours. (The
+# provenance job calls a reusable workflow, which can't set one.)
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -26,6 +29,7 @@ jobs:
   check:
     name: Check for a new base
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
@@ -112,6 +116,7 @@ jobs:
     needs: check
     if: needs.check.outputs.build == 'true'
     runs-on: ubuntu-latest # standard runner; larger runners are billed
+    timeout-minutes: 90 # usually about 6
     permissions:
       contents: read
       packages: write
@@ -374,6 +379,7 @@ jobs:
     name: Sign
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: release # holds SIGNING_SECRET, limited to main
     permissions:
       contents: read
@@ -388,6 +394,7 @@ jobs:
             github.com:443
             api.github.com:443
             release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             tuf-repo-cdn.sigstore.dev:443
@@ -443,6 +450,7 @@ jobs:
     name: Tag latest
     needs: [build, sign, provenance]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
@@ -456,6 +464,7 @@ jobs:
             github.com:443
             api.github.com:443
             release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             tuf-repo-cdn.sigstore.dev:443

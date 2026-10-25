@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # Fail the build instead of shipping an update check that can't work.
-for tool in rpm-ostree jq crane slsa-verifier git ssh-keygen; do
+for tool in rpm-ostree jq crane slsa-verifier git ssh-keygen skopeo gpg flock; do
   command -v "$tool" >/dev/null || { echo "missing in base image: $tool" >&2; exit 1; }
 done
 
@@ -23,11 +23,14 @@ chmod 0755 /usr/libexec/secureblue/verify-provenance.sh /usr/bin/myblue-setup \
 # Unsigned images I pull with podman. `ujust audit-secureblue` warns
 # about these scopes; that is expected. quay.io/ramalama/ramalama is
 # RamaLama's Vulkan image, which it picks for this GPU; it isn't signed.
+# ghcr.io/tinfoilsh/tinfoil-proxy, the dotfiles' quadlet, has only a GitHub
+# build attestation, which policy.json can't check.
 policy=/etc/containers/policy.json
 jq '.transports.docker += {
       "docker.io/cloudron/base": [{"type": "insecureAcceptAnything"}],
       "docker.io/selenium/standalone-chromium": [{"type": "insecureAcceptAnything"}],
-      "quay.io/ramalama/ramalama": [{"type": "insecureAcceptAnything"}]
+      "quay.io/ramalama/ramalama": [{"type": "insecureAcceptAnything"}],
+      "ghcr.io/tinfoilsh/tinfoil-proxy": [{"type": "insecureAcceptAnything"}]
     }' "$policy" > /tmp/policy.json
 cat /tmp/policy.json > "$policy"
 rm /tmp/policy.json
