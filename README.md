@@ -631,9 +631,13 @@ they do not alter the host's hardening or start agents.
   (polkit lets you, without a password), only checks the image `latest`
   points to and approves it if it passes; you can't choose what it
   approves.
-- Not tested yet: upgrade-on-boot on a machine without layered packages
-  updates with `bootc upgrade` rather than rpm-ostree, and whether bootc
-  applies `policy.json` there is open.
+- Both ways an update gets installed enforce the approval: rpm-ostree, and
+  `bootc upgrade`, which upgrade-on-boot uses on a machine without layered
+  packages. Each refuses an image without it ("A signature was required,
+  but no signature exists").
+- secureblue's login banner says the image tag is missing: it only
+  recognizes tags on image names containing `hardened`. Updates are
+  unaffected; `ujust toggle-user-motd` turns the banner off.
 - The first install trusts the clone `trust-myblue.sh` runs from only as
   far as you checked its commit against a key read off your security key
   (step 6). The README comes from that clone, so take those steps from a
