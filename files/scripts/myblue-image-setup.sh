@@ -23,13 +23,15 @@ chmod 0755 /usr/libexec/secureblue/verify-provenance.sh /usr/bin/myblue-setup \
 # Unsigned images I pull with podman. `ujust audit-secureblue` warns
 # about these scopes; that is expected. quay.io/ramalama/ramalama is
 # RamaLama's Vulkan image, which it picks for this GPU; it isn't signed.
-# ghcr.io/tinfoilsh/tinfoil-proxy, the dotfiles' quadlet, has only a GitHub
-# build attestation, which policy.json can't check.
+# ghcr.io/ggml-org/llama.cpp, the image the dotfiles' ramalama.service
+# runs, and ghcr.io/tinfoilsh/tinfoil-proxy, the dotfiles' quadlet, have
+# only GitHub build attestations, which policy.json can't check.
 policy=/etc/containers/policy.json
 jq '.transports.docker += {
       "docker.io/cloudron/base": [{"type": "insecureAcceptAnything"}],
       "docker.io/selenium/standalone-chromium": [{"type": "insecureAcceptAnything"}],
       "quay.io/ramalama/ramalama": [{"type": "insecureAcceptAnything"}],
+      "ghcr.io/ggml-org/llama.cpp": [{"type": "insecureAcceptAnything"}],
       "ghcr.io/tinfoilsh/tinfoil-proxy": [{"type": "insecureAcceptAnything"}]
     }' "$policy" > /tmp/policy.json
 cat /tmp/policy.json > "$policy"

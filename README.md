@@ -210,10 +210,12 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
    the image take effect. This drops any other local edits to it; check
    `diff <(jq -S . /usr/etc/containers/policy.json) <(jq -S . /etc/containers/policy.json)`
    first. The image already has your key and the podman entries for
-   `docker.io` and `quay.io/ramalama`, so anything the diff shows is
+   `docker.io`, `quay.io/ramalama`, `ghcr.io/ggml-org/llama.cpp` and
+   `ghcr.io/tinfoilsh/tinfoil-proxy`, so anything the diff shows is
    either a newer secureblue change (keep the image's version) or a local
    edit you need to carry into the recipe. RamaLama needs this step: until
-   then, podman refuses its image.
+   then, podman refuses its images, and the dotfiles skip setting up its
+   service.
    ```sh
    run0 cp /usr/etc/containers/policy.json /etc/containers/policy.json
    ```
@@ -317,18 +319,23 @@ and change the commit in its first line.
 ## RamaLama
 
 `ramalama` comes from Fedora's repos. It runs models in rootless podman
-containers, using an image from `quay.io/ramalama` that matches its minor
-version. Those images aren't signed (no cosign signatures or attachments),
-and secureblue's `policy.json` rejects anything it doesn't list, so
-`myblue-image-setup.sh` allows `quay.io/ramalama/ramalama`. That is the
-Vulkan image RamaLama picks for AMD GPUs (both the laptop's and the
+containers, by default with an image from `quay.io/ramalama` that matches
+its minor version. Those images aren't signed (no cosign signatures or
+attachments), and secureblue's `policy.json` rejects anything it doesn't
+list, so `myblue-image-setup.sh` allows `quay.io/ramalama/ramalama`. That
+is the Vulkan image RamaLama picks for AMD GPUs (both the laptop's and the
 desktop's), and the scope allows only it. If RamaLama starts picking another
 image (ROCm, say), the pull fails with a policy error. Add that repo on
 purpose, not the whole namespace. ROCm would also need `/dev/kfd`, which the
 dotfiles' quadlet drop-in leaves out.
 
 The model service that starts at login is a quadlet in the dotfiles. It
-has no outbound network and only the GPU's `/dev/dri`.
+runs llama.cpp's own image instead (`ghcr.io/ggml-org/llama.cpp`, a
+`full-vulkan-b<build>` tag pinned in the dotfiles' `packages.yaml`), whose
+llama-server is new enough for the decision models. Its CI attests its
+builds on GitHub but doesn't sign them, so that repo has a scope of its own.
+The service serves all of the machine's models through llama-server's
+router, has no outbound network and only the GPU's `/dev/dri`.
 Its chat UI (llama.cpp's `llama-ui`, a full PWA) is a Trivalent web app
 in `web-apps.json` at `http://127.0.0.1:8080/`. That port has to match
 `ramalama.port` in the dotfiles' `packages.yaml`.
@@ -582,7 +589,8 @@ they do not alter the host's hardening or start agents.
   build endpoint allowlist. Dependabot handles the action version, not the
   endpoint list or vendored scripts.
 - **`ujust audit-secureblue`** reports `policy.json` as modified (INFO) and
-  warns about the two `docker.io` scopes and `quay.io/ramalama/ramalama`.
+  warns about the two `docker.io` scopes, `quay.io/ramalama/ramalama`,
+  `ghcr.io/ggml-org/llama.cpp` and `ghcr.io/tinfoilsh/tinfoil-proxy`.
   That's expected. Don't copy your
   policy over `/usr/share/secureblue/etc/containers/policy.json` to silence
   it: the audit would then stop checking the policy at all.
