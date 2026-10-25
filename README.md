@@ -168,12 +168,30 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
    `javascript-jit.json` isn't in the image: JIT exceptions are kept by
    hand. Re-add them in Trivalent (*Settings → Privacy and security → Site
    settings → JavaScript optimization*); `myblue-setup` prints the list.
-2. **Trust your key, rebase and reboot:**
+2. **Check your clone, then trust your key and rebase.** The script below
+   runs code from the clone as root, so first make sure its commit is
+   yours. This README comes from the same clone: read these commands from a
+   copy you already trust, such as this repo on another machine.
+   ```sh
+   git -c gpg.ssh.allowedSignersFile="$PWD/files/system/usr/share/myblue/allowed_signers" \
+     -c gpg.openpgp.program=false -c gpg.x509.program=false verify-commit HEAD
+   ```
+   That prints the fingerprint of the key that signed it (`… with
+   ED25519-SK key SHA256:…`). The list it checked against is part of the
+   clone too, so make sure the key is yours: plug in the security key with
+   that fingerprint (your dotfiles' KEYS.md lists them) and read it off the
+   key itself. The two fingerprints must match.
+   ```sh
+   (cd "$(mktemp -d)" && ssh-keygen -K && ssh-keygen -lf id_ed25519_sk_rk_tripod0429.pub)
+   ```
+   Then:
    ```sh
    run0 ./bootstrap/trust-myblue.sh
-   rpm-ostree rebase ostree-image-signed:docker://ghcr.io/<you>/myblue:latest
    systemctl reboot
    ```
+   The script trusts your cosign key, runs the checks every update gets on
+   the image `latest` points to (against the clone's `allowed_signers`),
+   and rebases onto `latest`.
 3. **Hand `policy.json` back to the image**, so future policy changes from
    the image take effect. This drops any other local edits to it; check
    `diff <(jq -S . /usr/etc/containers/policy.json) <(jq -S . /etc/containers/policy.json)`
@@ -196,8 +214,9 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
    signature` line for your key, and `built from <commit>, signed by an
    allowed key`.
 
-On a fresh machine, install stock secureblue first, then start at step 2.
-That way secureblue's first-boot cleanup has already run.
+On a fresh machine, install stock secureblue first, clone this repo
+(`git clone https://github.com/<you>/myblue && cd myblue`), then start at
+step 2. That way secureblue's first-boot cleanup has already run.
 
 ## Proton Mail Bridge
 
@@ -479,10 +498,12 @@ real signed, unsigned and tampered packages.
   installed. Someone who controls your GitHub account can still stop
   updates (break the build, delete the package) and can read the cosign
   key through a workflow on `main`. CI signs and attests only the digest
-  it built, so they can't get it to vouch for an image of their own.
-  Three gaps remain on your machine's side, listed below: the moment
-  between the check and the download, a plain `rpm-ostree upgrade`, and
-  the first install.
+  it built, so they can't get it to vouch for an image of their own. But
+  with the stolen key and write access to the registry, which the account
+  also gives them, two gaps on your machine's side stay open, listed
+  below: the moment between the check and the download, and a plain
+  `rpm-ostree upgrade`. So your key stops a casual attack, not a targeted
+  one by someone who controls your GitHub account and knows this setup.
 - Only the commit an image was built from is checked. Earlier commits are
   trusted because you signed on top of them, which is why `git pull`
   refuses commits you didn't sign.
@@ -500,13 +521,19 @@ real signed, unsigned and tampered packages.
 - The provenance and commit checks run on the two normal update paths.
   A plain `rpm-ostree upgrade` skips them, and then only the cosign
   signature is checked. secureblue's polkit rule lets any program running
-  as you start one without a password.
-- The checks look at the digest `latest` points to, and the image is
-  fetched a moment later. secureblue's updater has the same window. With
-  the cosign key and write access to the registry, someone could swap
-  `latest` in between.
-- The first install (step 6) checks the signature and provenance by hand,
-  but not the commit signature, and rebases to `latest` rather than to the
-  digest it checked.
+  as you start one without a password. Overriding that rule so `upgrade`
+  needs your password would close this gap without changing how updates
+  work.
+- The checks look at the digest `latest` points to, and rpm-ostree looks
+  the tag up again a moment later; the first install (step 6) works the
+  same way. secureblue's updater has the same window. With the cosign key
+  and write access to the registry, someone could swap `latest` in
+  between. Closing it means installing by digest (`rpm-ostree rebase
+  …@sha256:<checked digest>`) instead of following `latest`, which
+  secureblue's update tooling isn't built for; this repo doesn't do that.
+- The first install trusts the clone `trust-myblue.sh` runs from only as
+  far as you checked its commit against a key read off your security key
+  (step 6). The README comes from that clone, so take those steps from a
+  copy you already trust.
 - Once `policy.json` can match GitHub workflow identities (upstream work
   in progress), rpm-ostree could enforce the provenance check itself.

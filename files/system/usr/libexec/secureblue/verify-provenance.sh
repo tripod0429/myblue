@@ -10,6 +10,11 @@
 # from is signed by a key in ALLOWED_SIGNERS. GitHub vouches for the
 # provenance, so the signature is what someone who controls the GitHub
 # account can't produce.
+#
+#   verify-provenance.sh                              before an update
+#   verify-provenance.sh --bootstrap SIGNERS DIGEST   first install, from
+#       bootstrap/trust-myblue.sh: checks DIGEST against the SIGNERS file of
+#       a checkout you verified, without requiring a myblue boot
 set -euo pipefail
 
 # Trust anchors: hardcoded on purpose, never derived from the image being
@@ -17,7 +22,20 @@ set -euo pipefail
 readonly IMAGE=ghcr.io/tripod0429/myblue
 readonly SOURCE=github.com/tripod0429/myblue
 readonly BRANCH=main
-readonly ALLOWED_SIGNERS=/usr/share/myblue/allowed_signers
+ALLOWED_SIGNERS=/usr/share/myblue/allowed_signers
+
+usage() { echo "usage: $0 [--bootstrap ALLOWED_SIGNERS DIGEST]" >&2; exit 2; }
+bootstrap=0
+case $# in
+  0) ;;
+  3) [[ $1 == --bootstrap ]] || usage
+     bootstrap=1 ALLOWED_SIGNERS=$2 digest=$3 ;;
+  *) usage ;;
+esac
+if [[ ! -r $ALLOWED_SIGNERS ]]; then
+  echo "verify-provenance: can't read $ALLOWED_SIGNERS" >&2
+  exit 1
+fi
 
 # Not set when run from a system service; slsa-verifier caches under it.
 export HOME="${HOME:-/root}"
@@ -27,15 +45,18 @@ if [[ ! -x /usr/bin/rpm-ostree ]]; then
   exit 1
 fi
 
-ref=$(rpm-ostree status --booted --json | jq -r '.deployments[0]."container-image-reference"')
-ref=${ref#*:docker://}
-
-if [[ $ref != "$IMAGE:latest" ]]; then
-  echo "verify-provenance: booted from '$ref', expected '$IMAGE:latest'" >&2
+if (( !bootstrap )); then
+  ref=$(rpm-ostree status --booted --json | jq -r '.deployments[0]."container-image-reference"')
+  if [[ $ref != "ostree-image-signed:docker://$IMAGE:latest" ]]; then
+    echo "verify-provenance: booted from '$ref', expected 'ostree-image-signed:docker://$IMAGE:latest'" >&2
+    exit 1
+  fi
+  digest=$(crane digest "$IMAGE:latest")
+fi
+if [[ ! $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "verify-provenance: not a digest: '$digest'" >&2
   exit 1
 fi
-
-digest=$(crane digest "$ref")
 provenance=$(slsa-verifier verify-image \
   --source-uri "$SOURCE" \
   --source-branch "$BRANCH" \
