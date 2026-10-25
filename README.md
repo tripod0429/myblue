@@ -12,13 +12,17 @@ supply-chain model:
    move to it. Provenance is a statement signed by GitHub saying this
    image was built by this repo's workflow, from `main`.
 3. **The machine** checks three things before every update:
-   - rpm-ostree checks the cosign signature (`policy.json`).
    - `verify-provenance.sh` checks the provenance, then checks that the
      commit the image was built from is signed by a key in
      `/usr/share/myblue/allowed_signers` (the `ssh:tripod0429` FIDO2 key of
-     each of your security keys).
-     secureblue runs this script before automatic updates and before
-     `ujust update-system`.
+     each of your security keys). secureblue runs this script before
+     automatic updates and before `ujust update-system`.
+   - If both pass, the script approves exactly that image for this
+     machine: a signature with the machine's own key, stored locally.
+   - rpm-ostree requires both the cosign signature and that approval
+     (`policy.json`). So whatever `latest` points to by the time it
+     downloads, and whoever starts the download, it only installs the
+     image the script checked.
 
 GitHub vouches for the cosign signature (its key is a GitHub secret) and
 for the provenance. The commit signature is the one thing someone with your
@@ -29,9 +33,9 @@ doesn't count.
 | File | Purpose |
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
-| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `luks-add-fido2-key.sh`, `keyaudit.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
+| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh` and its `allowed_signers`, `myblue-approve.service` and its polkit rule (the check and approval, for `ujust update-system`), `luks-add-fido2-key.sh`, `keyaudit.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
 | `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key`, `audit-security-key` |
-| `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge and Mullvad installs, their RPM verifier, checks, `policy.json` additions |
+| `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge and Mullvad installs, their RPM verifier, checks, `policy.json` additions; `myblue-approval-policy.sh`, after the `signing` module, which makes `policy.json` require the machine's approval |
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
 | `files/keys/` | Proton's Bridge and Mullvad's code signing keys, for checking their RPMs at build time |
 | `.github/workflows/build.yml` | Daily build plus an hourly check for a new secureblue base; base-image check, signing, provenance |
@@ -189,9 +193,11 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
    run0 ./bootstrap/trust-myblue.sh
    systemctl reboot
    ```
-   The script trusts your cosign key, runs the checks every update gets on
-   the image `latest` points to (against the clone's `allowed_signers`),
-   and rebases onto `latest`.
+   The script trusts your cosign key, makes `policy.json` require this
+   machine's approval as well, runs the checks every update gets on the
+   image `latest` points to (against the clone's `allowed_signers`),
+   approves it and rebases onto `latest`. rpm-ostree refuses anything else
+   the tag might point to by then.
 3. **Hand `policy.json` back to the image**, so future policy changes from
    the image take effect. This drops any other local edits to it; check
    `diff <(jq -S . /usr/etc/containers/policy.json) <(jq -S . /etc/containers/policy.json)`
@@ -203,16 +209,23 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
    ```sh
    run0 cp /usr/etc/containers/policy.json /etc/containers/policy.json
    ```
+   On a machine that moved onto the image before approvals were added,
+   also hand back `registries.d` (its copy has no local signature store):
+   `run0 cp /usr/etc/containers/registries.d/tripod0429-myblue.yaml /etc/containers/registries.d/`.
+   Until both match, the update check refuses to run and says so.
 4. **Remove leftover layering.** `rpm-ostree status` lists packages you
    had layered that are now in the image as inactive requests. Remove
    them with `rpm-ostree uninstall <pkgs>`. That includes `mullvad-vpn`;
    your Mullvad login and settings stay. The Mullvad repo that
    `ujust install-vpn` turned on is no longer needed:
    `run0 sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/mullvad.repo`.
-5. **Test the update check:** `/usr/libexec/secureblue/verify-provenance.sh`
+5. **Test the update check:** `run0 /usr/libexec/secureblue/verify-provenance.sh`
    should exit 0, print a `PASSED` line from slsa-verifier, a `Good "git"
-   signature` line for your key, and `built from <commit>, signed by an
-   allowed key`.
+   signature` line for your key, `built from <commit>, signed by an
+   allowed key` and `approved sha256:… for this machine` (the first time
+   also `created this machine's approval key`). Without `run0`, it hands
+   the same work to `myblue-approve.service`, as `ujust update-system`
+   does.
 
 On a fresh machine, install stock secureblue first, clone this repo
 (`git clone https://github.com/<you>/myblue && cd myblue`), then start at
@@ -474,6 +487,11 @@ real signed, unsigned and tampered packages.
   why. secureblue also warns you once the system is a week out of date.
   `is not signed by a key in /usr/share/myblue/allowed_signers` means the
   newest image was built from a commit you didn't sign; see *Pulling*.
+  `doesn't require this machine's approval` means `/etc/containers` still
+  has an old copy of `policy.json` or `registries.d` (step 6.3). A pull
+  refused with `A signature was required, but no signature exists` means
+  `latest` points to an image the check hasn't approved: one that failed
+  it, or one that came out after it ran (the next update approves it).
 - **Following secureblue's BlueBuild versions:** Dependabot can't bump the
   BlueBuild CLI (`cli_version` in `build.yml`) or the modules image digest
   (`source:` on each module in the recipe). When secureblue bumps them, in
@@ -498,39 +516,43 @@ real signed, unsigned and tampered packages.
   installed. Someone who controls your GitHub account can still stop
   updates (break the build, delete the package) and can read the cosign
   key through a workflow on `main`. CI signs and attests only the digest
-  it built, so they can't get it to vouch for an image of their own. But
-  with the stolen key and write access to the registry, which the account
-  also gives them, two gaps on your machine's side stay open, listed
-  below: the moment between the check and the download, and a plain
-  `rpm-ostree upgrade`. So your key stops a casual attack, not a targeted
-  one by someone who controls your GitHub account and knows this setup.
+  it built, so they can't get it to vouch for an image of their own. With
+  the stolen key and write access to the registry they can still sign
+  images and point `latest` anywhere, but rpm-ostree also requires your
+  machine's approval, which it gives only to an image built by your
+  workflow from a commit one of your keys signed.
 - Only the commit an image was built from is checked. Earlier commits are
   trusted because you signed on top of them, which is why `git pull`
   refuses commits you didn't sign.
 - If you lose every key in `allowed_signers`, updates stop. To recover:
   1. Add a new key to the file and to GitHub as a signing key.
   2. Commit the change, signed with the new key, and push.
-  3. Once it's built, run `rpm-ostree upgrade` by hand on each machine.
-     That checks only the cosign signature.
+  3. Once it's built, check it as in step 5 of the setup (`d` is its
+     digest), then approve it on each machine with a copy of
+     `allowed_signers` that has the new key:
+     `run0 /usr/libexec/secureblue/verify-provenance.sh --bootstrap <that file> $d`,
+     followed by `rpm-ostree upgrade`.
 
   A backup signing key in the file avoids this.
 - This is a single-maintainer repo: signed commits do not replace
   secureblue's independent maintainer review. Require independent source
   review if another trusted reviewer becomes available; do not put a manual
   approval gate on every scheduled build.
-- The provenance and commit checks run on the two normal update paths.
-  A plain `rpm-ostree upgrade` skips them, and then only the cosign
-  signature is checked. secureblue's polkit rule lets any program running
-  as you start one without a password. Overriding that rule so `upgrade`
-  needs your password would close this gap without changing how updates
-  work.
-- The checks look at the digest `latest` points to, and rpm-ostree looks
-  the tag up again a moment later; the first install (step 6) works the
-  same way. secureblue's updater has the same window. With the cosign key
-  and write access to the registry, someone could swap `latest` in
-  between. Closing it means installing by digest (`rpm-ostree rebase
-  …@sha256:<checked digest>`) instead of following `latest`, which
-  secureblue's update tooling isn't built for; this repo doesn't do that.
+- Approvals live on the machine: the public key in
+  `/etc/pki/containers/myblue-approval.gpg`, the private key in
+  `/var/lib/myblue/approval-gnupg` (root only, made on first use), the
+  signatures in `/var/lib/containers/sigstore`. Only the newest image that
+  passed the check stays approved, so a tag moved back to an older one
+  isn't accepted. Anyone with root can approve any image, but root can
+  install one anyway. A plain `rpm-ostree upgrade`, which secureblue lets
+  any program running as you start, can only install the approved image.
+- `myblue-approve.service`, which `ujust update-system` starts for you
+  (polkit lets you, without a password), only checks the image `latest`
+  points to and approves it if it passes; you can't choose what it
+  approves.
+- Not tested yet: upgrade-on-boot on a machine without layered packages
+  updates with `bootc upgrade` rather than rpm-ostree, and whether bootc
+  applies `policy.json` there is open.
 - The first install trusts the clone `trust-myblue.sh` runs from only as
   far as you checked its commit against a key read off your security key
   (step 6). The README comes from that clone, so take those steps from a

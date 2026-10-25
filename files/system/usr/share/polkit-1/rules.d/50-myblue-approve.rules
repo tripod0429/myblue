@@ -1,0 +1,13 @@
+// Lets you start myblue-approve.service without a password, so
+// `ujust update-system` doesn't ask for one. The service can only check
+// the image `latest` points to and approve it if it passes; you can't
+// choose what it approves.
+polkit.addRule(function(action, subject) {
+    if (action.id === "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") === "myblue-approve.service" &&
+        action.lookup("verb") === "start" &&
+        subject.active === true &&
+        subject.local === true) {
+            return polkit.Result.YES;
+    }
+});

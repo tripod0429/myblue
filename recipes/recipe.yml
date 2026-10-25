@@ -44,7 +44,9 @@ modules:
   # - Trivalent managed policies (correct SELinux labels, no restorecon)
   # - myblue-setup, the one-time setup helper
   # - verify-provenance.sh, replacing secureblue's so updates check
-  #   this repo's provenance instead of secureblue's
+  #   this repo's provenance instead of secureblue's, then approve the
+  #   image for the machine; myblue-approve.service and its polkit rule
+  #   let `ujust update-system` do that without a password
   # - the tmpfiles.d link from /opt to Mullvad's files in /usr/lib/opt
   # - keyaudit.sh, behind `ujust audit-security-key`
   - type: files
@@ -89,3 +91,10 @@ modules:
   # only accepts images signed with your key.
   - type: signing
     source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+
+  # After signing: policy.json also requires the machine's own approval,
+  # which verify-provenance.sh gives an image once it passes its checks.
+  - type: script
+    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    scripts:
+      - myblue-approval-policy.sh

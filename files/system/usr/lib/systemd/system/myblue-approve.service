@@ -1,0 +1,11 @@
+# Started by verify-provenance.sh when `ujust update-system` runs it as you:
+# approving an image needs root. It can only check the image `latest`
+# points to and approve it if it passes (polkit rule: 50-myblue-approve).
+[Unit]
+Description=Check the newest myblue image and approve it for this machine
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/secureblue/verify-provenance.sh

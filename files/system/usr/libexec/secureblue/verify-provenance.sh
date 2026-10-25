@@ -11,10 +11,16 @@
 # provenance, so the signature is what someone who controls the GitHub
 # account can't produce.
 #
+# Then it approves exactly that image for this machine: a signature with
+# this machine's own key, which policy.json requires next to the cosign
+# signature. rpm-ostree refuses any image without one, so a tag moved after
+# the check, or a plain `rpm-ostree upgrade`, can't bring in an image this
+# script didn't check.
+#
 #   verify-provenance.sh                              before an update
 #   verify-provenance.sh --bootstrap SIGNERS DIGEST   first install, from
-#       bootstrap/trust-myblue.sh: checks DIGEST against the SIGNERS file of
-#       a checkout you verified, without requiring a myblue boot
+#       bootstrap/trust-myblue.sh, or recovery: checks DIGEST against the
+#       SIGNERS file you give it, without requiring a myblue boot
 set -euo pipefail
 
 # Trust anchors: hardcoded on purpose, never derived from the image being
@@ -23,6 +29,14 @@ readonly IMAGE=ghcr.io/tripod0429/myblue
 readonly SOURCE=github.com/tripod0429/myblue
 readonly BRANCH=main
 ALLOWED_SIGNERS=/usr/share/myblue/allowed_signers
+
+# This machine's approvals. The policy.json and registries.d entries that
+# require them come from files/scripts/myblue-approval-policy.sh (and
+# bootstrap/trust-myblue.sh, which writes the same).
+readonly CONTAINERS=/etc/containers
+readonly KEYRING=/etc/pki/containers/myblue-approval.gpg
+readonly SIGNATURES=/var/lib/containers/sigstore
+readonly GNUPG=/var/lib/myblue/approval-gnupg
 
 usage() { echo "usage: $0 [--bootstrap ALLOWED_SIGNERS DIGEST]" >&2; exit 2; }
 bootstrap=0
@@ -37,11 +51,37 @@ if [[ ! -r $ALLOWED_SIGNERS ]]; then
   exit 1
 fi
 
+# Approving needs root. `ujust update-system` runs this as you, so hand
+# over to a service that runs it as root; a polkit rule lets you start it.
+if (( EUID != 0 )); then
+  if (( bootstrap )); then
+    echo "verify-provenance: --bootstrap must run as root" >&2
+    exit 1
+  fi
+  if systemctl start --wait myblue-approve.service; then
+    journalctl -u myblue-approve.service -n 3 -o cat --no-pager 2>/dev/null || true
+    exit 0
+  fi
+  echo "verify-provenance: the check failed; see journalctl -u myblue-approve.service" >&2
+  exit 1
+fi
+
 # Not set when run from a system service; slsa-verifier caches under it.
 export HOME="${HOME:-/root}"
 
 if [[ ! -x /usr/bin/rpm-ostree ]]; then
   echo "verify-provenance: only rpm-ostree systems are supported" >&2
+  exit 1
+fi
+
+# Approvals only protect if this machine's policy asks for them. A copy of
+# policy.json or registries.d edited before this was added doesn't.
+if ! jq -e --arg i "$IMAGE" --arg k "$KEYRING" \
+       '.transports.docker[$i] | any(.type == "signedBy" and .keyPath == $k)' \
+       "$CONTAINERS/policy.json" > /dev/null ||
+   ! grep -qsxF "    lookaside: file://$SIGNATURES" "$CONTAINERS"/registries.d/*.yaml; then
+  echo "verify-provenance: $CONTAINERS doesn't require this machine's approval for $IMAGE." >&2
+  echo "Copy policy.json and registries.d/ from /usr/etc/containers (README, step 6)." >&2
   exit 1
 fi
 
@@ -76,7 +116,7 @@ fi
 # SSH signature by a key in ALLOWED_SIGNERS passes. GitHub's own signature
 # on merges made in its web UI is OpenPGP and doesn't count.
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; GNUPGHOME=$GNUPG gpgconf --kill gpg-agent 2> /dev/null || true' EXIT
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 git init -q --bare "$work/repo.git"
 git -C "$work/repo.git" fetch -q --depth=1 "https://$SOURCE" "$commit"
@@ -89,3 +129,49 @@ if ! git -C "$work/repo.git" \
   exit 1
 fi
 echo "verify-provenance: built from $commit, signed by an allowed key"
+
+# The machine's approval key: GPG, the only kind of key policy.json can
+# check against signatures stored locally. Created on first use, kept by
+# root; only the public half is in $KEYRING. If either half is missing,
+# start over: earlier approvals don't matter, only this one does.
+exec 9> /run/myblue-approval.lock
+flock 9
+if [[ ! -s $KEYRING ]] ||
+   ! GNUPGHOME=$GNUPG gpg --batch --list-secret-keys --with-colons 2> /dev/null | grep -q '^sec'; then
+  rm -rf "$GNUPG"
+  install -d -m 0700 "$GNUPG"
+  GNUPGHOME=$GNUPG gpg --batch --quiet --passphrase '' \
+    --quick-gen-key "myblue approval for $(uname -n)" ed25519 sign never
+  GNUPGHOME=$GNUPG gpg --batch --export > "$work/key.gpg"
+  install -D -m 0644 "$work/key.gpg" "$KEYRING"
+  echo "verify-provenance: created this machine's approval key"
+fi
+fpr=$(GNUPGHOME=$GNUPG gpg --batch --list-secret-keys --with-colons | awk -F: '/^fpr/ { print $10; exit }')
+
+# approve DIGEST: sign the manifest stored under DIGEST. skopeo checks it
+# against the digest; the signature names the digest too.
+approve() {
+  local manifest=$work/${1#sha256:}.json dir="$SIGNATURES/${IMAGE#*/}@${1/:/=}"
+  skopeo inspect --raw "docker://$IMAGE@$1" > "$manifest"
+  install -d -m 0755 "$dir"
+  GNUPGHOME=$GNUPG skopeo standalone-sign "$manifest" "$IMAGE:latest" "$fpr" -o "$dir/signature-1.new"
+  mv -f "$dir/signature-1.new" "$dir/signature-1"
+}
+# Both the index and the amd64 image in it (myblue is built for amd64 only):
+# which of the two gets checked depends on how an image is fetched.
+approve "$digest"
+image=$(jq -r '.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' \
+  "$work/${digest#sha256:}.json")
+[[ -n $image ]] && approve "$image"
+
+# Only this image stays approved. An approval left for an older image would
+# let a tag moved back to it bring it in again; the deployed images don't
+# need one, since nothing fetches them again.
+for dir in "$SIGNATURES/${IMAGE#*/}"@*; do
+  [[ -d $dir ]] || continue
+  case ${dir##*@} in
+    "${digest/:/=}" | "${image/:/=}") ;;
+    *) rm -rf "$dir" ;;
+  esac
+done
+echo "verify-provenance: approved ${digest} for this machine"
