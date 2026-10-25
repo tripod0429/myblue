@@ -53,12 +53,15 @@ fi
 
 # Approving needs root. `ujust update-system` runs this as you, so hand
 # over to a service that runs it as root; a polkit rule lets you start it.
+# The service is Type=oneshot, so `start` waits for it and fails if it
+# does. (`--wait` would also ask polkit to keep a reference to the unit,
+# which the rule doesn't allow: a password prompt that times out.)
 if (( EUID != 0 )); then
   if (( bootstrap )); then
     echo "verify-provenance: --bootstrap must run as root" >&2
     exit 1
   fi
-  if systemctl start --wait myblue-approve.service; then
+  if systemctl start myblue-approve.service; then
     journalctl -u myblue-approve.service -n 3 -o cat --no-pager 2>/dev/null || true
     exit 0
   fi
