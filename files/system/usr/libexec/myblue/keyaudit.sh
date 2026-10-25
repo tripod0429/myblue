@@ -449,18 +449,23 @@ fi
 # chezmoi update runs `git pull --verify-signatures` (the dotfiles'
 # .chezmoi.toml.tmpl). git then accepts a commit signed by an ssh key in
 # gpg.ssh.allowedSignersFile, or by a GPG key gpg trusts at least
-# marginally, unless gpg.minTrustLevel asks for more. GPG keys get no count
-# check: one key's subkeys can be on two cards, and gpg remembers only one
-# of them. Run this on each card.
+# marginally, unless gpg.minTrustLevel asks for more, or chezmoi runs git
+# with gpg.openpgp.program=false, as these dotfiles do: then GPG signatures
+# don't count at all. GPG keys get no count check: one key's subkeys can be
+# on two cards, and gpg remembers only one of them. Run this on each card.
 CZ=${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.toml
-section "Dotfiles updates  ->  commits signed by a key in allowed_signers, or a GPG key you trust"
+# git's settings as chezmoi update sees them, in the dotfiles source; not
+# those of whatever repo this runs from.
+CZSRC=$HOME/.local/share/chezmoi
+[[ -d $CZSRC/.git ]] || CZSRC=$HOME
+section "Dotfiles updates  ->  commits signed by a key in allowed_signers (or a GPG key you trust)"
 if ! grep -q -- '--verify-signatures' "$CZ" 2>/dev/null; then
   info "chezmoi update doesn't check signatures (no --verify-signatures in $CZ)"
 elif ! have git; then
   note "git not installed - skipping"
 else
   nds=0 dsok='' nk=0 cardok=0
-  das=$(git config --type=path --get gpg.ssh.allowedSignersFile 2>/dev/null)
+  das=$(git -C "$CZSRC" config --type=path --get gpg.ssh.allowedSignersFile 2>/dev/null)
   if [ -z "$das" ]; then
     info "no gpg.ssh.allowedSignersFile in git's config: only GPG signatures count"
   elif [ ! -r "$das" ]; then
@@ -476,10 +481,12 @@ else
     fi
   fi
 
-  if ! have gpg; then
+  if grep -qF 'gpg.openpgp.program=false' "$CZ"; then
+    info "GPG signatures don't count: chezmoi update runs git with OpenPGP verification off"
+  elif ! have gpg; then
     dim "gnupg not installed - GPG signatures not checked"
   else
-    case $(git config --get gpg.minTrustLevel 2>/dev/null) in
+    case $(git -C "$CZSRC" config --get gpg.minTrustLevel 2>/dev/null) in
       undefined) tl='[-qnmfu]' ;;
       never)     tl='[nmfu]' ;;
       fully)     tl='[fu]' ;;

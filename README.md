@@ -376,9 +376,9 @@ commit-signature verification.
 `/etc/skel`'s versions (or empty) and makes them immutable. Backups go to
 `~/bash_env_files`. Turning it off only lifts the immutability, so anything
 in those files is lost each time it's turned on. So the settings you'd put
-there (gpg-agent as SSH agent, ghcup on `PATH`, the claude and opencode
-aliases) are in `files/system/etc/profile.d/myblue.sh`, the same place
-secureblue ships its own (`gnome-disable-jit.sh`,
+there (ghcup on `PATH`, the claude and opencode aliases) are in
+`files/system/etc/profile.d/myblue.sh`, the same place secureblue ships its
+own (`gnome-disable-jit.sh`,
 `xx-bash-prompt-command.sh`). Being in the image, they're root-owned and
 signed like the rest of it. The dotfiles leave `~/.bashrc` and
 `~/.bash_profile` to secureblue.

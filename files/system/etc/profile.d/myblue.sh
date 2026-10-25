@@ -7,11 +7,6 @@
 # the others.
 
 if [ "$(/usr/bin/id -u)" != 0 ]; then
-    # Use GnuPG as the session-wide SSH agent. This is how COSMIC DE sets SSH_AUTH_SOCK.
-    if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
-        export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/gnupg/S.gpg-agent.ssh"
-    fi
-
     case ":$PATH:" in
         *":$HOME/.ghcup/bin:"*) ;;
         *) export PATH="$HOME/.ghcup/bin:$PATH" ;;
