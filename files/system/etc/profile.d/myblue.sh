@@ -24,7 +24,11 @@ if [ "$(/usr/bin/id -u)" != 0 ]; then
     # refuses to start if the agent could write to a directory on PATH.
     # myblue-agent-check first compares the agents' instructions, skills and
     # agent definitions with the dotfiles, since either sandbox can edit them.
-    alias claude='myblue-agent-check && nono run --profile claude-haskell --rollback --strict-broker-path -- claude'
+    # nono only grants a folder that exists when it starts, and /tmp is
+    # emptied at boot, so the alias makes Claude's temp folder first (its
+    # scratchpad and TMPDIR). Without it /tmp is write-only to Claude: it can
+    # write files there but not read them back.
+    alias claude='myblue-agent-check && mkdir -p -m 700 "/tmp/claude-$(id -u)" && nono run --profile claude-haskell --rollback --strict-broker-path -- claude'
 
     # myblue-opencode gives opencode its server inside the sandbox.
     alias opencode='myblue-agent-check && nono run --profile opencode-haskell --rollback --strict-broker-path -- myblue-opencode'

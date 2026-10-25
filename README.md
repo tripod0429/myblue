@@ -341,6 +341,12 @@ skips the alias.
   nono offers to restore them on exit; later, `nono rollback list` and
   `nono rollback restore <id>`. The profiles keep the agents' own folders
   and caches out of the snapshots.
+- The `claude` alias creates `/tmp/claude-<uid>` before starting nono. It
+  holds Claude's scratchpad, and the profile points `TMPDIR` at it. nono
+  silently drops a grant for a path that doesn't exist yet, and the claude
+  pack's own setup hook doesn't create this one. `/tmp` is emptied at boot,
+  so without the alias the first session after a reboot can write files
+  there but not read them back.
 - `--strict-broker-path` refuses to start if the agent could write to a
   directory on `PATH`, where it could plant a program you'd later run
   outside the sandbox.
