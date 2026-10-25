@@ -5,11 +5,11 @@
 # already here, is installed.
 #
 # One ssh:tripod0429 FIDO2 key per security key, by the label on it (the
-# dotfiles' KEYS.md says which is which). All need a touch, and all but
-# t22's also the key's PIN.
+# dotfiles' KEYS.md says which is which). All need a touch and the key's
+# PIN.
 #
-# t22 (Token2), SHA256:0RX1usxu03p8Nf5lH3kqRmHuNx5VLuTQec0tKCNJuG0
-293636407+tripod0429@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIH8T+XMJNbqWXDD/NnDsbL3b5xvzYcxO4unQTQ5uK8NMAAAADnNzaDp0cmlwb2QwNDI5 tripod0429-signing
+# t22 (Token2), SHA256:/GlltGGLk6wSt6vLB5Y32piBkILt/w6zUhf/HbEbRjM
+293636407+tripod0429@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIDtgHZeAMaGhRpx0dqnVI+8f/BVWHVPbT08Vu7N+FDThAAAADnNzaDp0cmlwb2QwNDI5 tripod0429-t22
 # t26 (Token2), SHA256:PKfv1NRO8JoIQoPJczI5FOOeHoeK1+VZZhojP6c7rWo
 293636407+tripod0429@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIC9qwSaQD9rX6r1DVryN/gHfdqZfe8QHPxX2kk9ile27AAAADnNzaDp0cmlwb2QwNDI5 tripod0429-t26
 # nka (Nitrokey 3), SHA256:N9rTOfA56DS3QeGOaP0BoLjLqcTlNR1loydnjZSYlAY
