@@ -1,6 +1,7 @@
 #!/usr/bin/bash
 # One-time secureblue setup for a new machine.
-# Every step asks first, so it is safe to re-run.
+# Every change asks first. Preserve existing USBGuard policy and never
+# toggle already-enabled MAC randomization or Bash lockdown back off.
 set -euo pipefail
 
 ask() {
@@ -17,7 +18,11 @@ step() {
 }
 
 step set-kargs-hardening
-step setup-usbguard
+if [[ -e /etc/usbguard/rules.conf ]]; then
+  printf 'USBGuard already has a policy; leaving it and the service state unchanged.\n\n'
+else
+  step setup-usbguard
+fi
 step set-container-userns on
 step set-unconfined-userns on
 step flatpak-permissions-lockdown
@@ -26,8 +31,11 @@ printf "Mullvad's DNS doesn't work with Unbound, secureblue's other resolver.\n"
 step dns-selector resolver resolved
 step install-steam
 
-printf 'The next two are toggles: running them again turns them back off.\n\n'
-step toggle-mac-randomization
+if [[ -e /etc/NetworkManager/conf.d/rand_mac.conf ]]; then
+  printf 'MAC randomization configuration already exists; not toggling it.\n\n'
+else
+  step toggle-mac-randomization
+fi
 
 cat <<'EOF'
 Trivalent: add these JavaScript JIT exceptions by hand:
@@ -58,4 +66,19 @@ and ~/.config/environment.d to secureblue's defaults (backups go to
 image (/etc/profile.d/myblue.sh), so nothing is lost. Change them there.
 
 EOF
-step toggle-bash-environment-lockdown
+# Match the upstream toggle's state test: an immutable .bashrc means that
+# calling it would UNLOCK the environment. Skip if that state is unknown.
+if ! user_home=$(getent passwd "$(id -un)" | cut -d: -f6) || [[ ! -d $user_home ]]; then
+  printf 'Could not find your home directory; skipping Bash environment lockdown.\n' >&2
+elif [[ ! -e $user_home/.bashrc && ! -L $user_home/.bashrc ]]; then
+  step toggle-bash-environment-lockdown
+elif attributes=$(lsattr -d -- "$user_home/.bashrc" 2>/dev/null) &&
+     [[ ${attributes%% *} =~ ^[-[:alpha:]]+$ ]]; then
+  if [[ ${attributes%% *} == *i* ]]; then
+    printf 'Bash environment lockdown is already enabled; not toggling it.\n'
+  else
+    step toggle-bash-environment-lockdown
+  fi
+else
+  printf 'Could not check Bash environment lockdown; skipping it without toggling.\n' >&2
+fi

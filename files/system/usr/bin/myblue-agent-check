@@ -5,25 +5,48 @@
 # the instructions, skills or agents that every later session of either
 # agent loads. The real ones are in the dotfiles (chezmoi): ask before
 # starting if any file differs from them or a new one appeared.
+# If a check is unavailable or fails, ask rather than silently approving.
 set -euo pipefail
 
+config_home=${XDG_CONFIG_HOME:-$HOME/.config}
 paths=(~/.claude/CLAUDE.md ~/.claude/skills ~/.claude/agents
-  ~/.config/opencode/AGENTS.md ~/.config/opencode/agents)
+  "$config_home/opencode/AGENTS.md" "$config_home/opencode/skills"
+  "$config_home/opencode/agents")
 
-if ! command -v chezmoi >/dev/null || ! chezmoi source-path >/dev/null 2>&1; then
-  echo "myblue-agent-check: no chezmoi dotfiles here; not checking agent config" >&2
-  exit 0
+confirm_start() {
+  local answer
+  read -rp "Start the agent anyway? [y/N] " answer || answer=
+  [[ $answer == [yY]* ]]
+}
+
+unchecked() {
+  echo "myblue-agent-check: $*; agent config was not fully checked" >&2
+  if confirm_start; then exit 0; fi
+  exit 1
+}
+
+if ! command -v chezmoi >/dev/null; then
+  unchecked "chezmoi is unavailable"
+fi
+if ! chezmoi source-path >/dev/null 2>&1; then
+  unchecked "no accessible chezmoi dotfiles"
 fi
 
-changed=$(chezmoi status "${paths[@]}")
+if ! changed=$(chezmoi status "${paths[@]}"); then
+  unchecked "chezmoi status failed"
+fi
+
 existing=()
 for p in "${paths[@]}"; do
-  if [[ -e $p ]]; then existing+=("$p"); fi
+  if [[ -e $p || -L $p ]]; then existing+=("$p"); fi
 done
 new=
 if ((${#existing[@]})); then
+  if ! unmanaged=$(chezmoi unmanaged "${existing[@]}"); then
+    unchecked "chezmoi unmanaged failed"
+  fi
   # ~/.claude/skills/synced is Claude's copy of your claude.ai skills.
-  new=$(chezmoi unmanaged "${existing[@]}" | grep -vx '\.claude/skills/synced' || true)
+  new=$(grep -vx '\.claude/skills/synced' <<<"$unmanaged" || true)
 fi
 
 if [[ -z $changed && -z $new ]]; then exit 0; fi
@@ -39,5 +62,4 @@ cat >&2 <<'EOF'
 Review with `chezmoi diff`; `chezmoi apply` restores the changed files.
 Delete new files you didn't add, or keep them with `chezmoi add`.
 EOF
-read -rp "Start the agent anyway? [y/N] " answer || answer=
-[[ $answer == [yY]* ]]
+confirm_start
