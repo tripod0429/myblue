@@ -16,6 +16,16 @@
       "create_desktop_shortcut": true
     },
     {
+      "url": "https://chat.tinfoil.sh/",
+      "default_launch_container": "window",
+      "create_desktop_shortcut": true
+    },
+    {
+      "url": "https://app.element.io/",
+      "default_launch_container": "window",
+      "create_desktop_shortcut": true
+    },
+    {
       "url": "https://discord.com/app",
       "default_launch_container": "window",
       "create_desktop_shortcut": true,
