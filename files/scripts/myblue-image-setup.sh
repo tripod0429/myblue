@@ -36,3 +36,11 @@ jq '.transports.docker += {
     }' "$policy" > /tmp/policy.json
 cat /tmp/policy.json > "$policy"
 rm /tmp/policy.json
+
+# COSMIC's start-cosmic starts gnome-keyring's SSH agent and points
+# SSH_AUTH_SOCK at it. That agent lists every key in ~/.ssh, so git's
+# commit signing hands the FIDO2 keys to it, and it can't ask for their
+# PIN. Start the keyring without it: ssh and git use the key files.
+grep -q -- '--components=pkcs11,secrets,ssh' /usr/bin/start-cosmic ||
+  { echo "start-cosmic changed; check how it sets SSH_AUTH_SOCK now" >&2; exit 1; }
+sed -i 's/--components=pkcs11,secrets,ssh/--components=pkcs11,secrets/' /usr/bin/start-cosmic

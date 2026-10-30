@@ -40,7 +40,7 @@ doesn't count.
 | `recipes/recipe.yml` | What goes into the image |
 | `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh`, its `allowed_signers` and generated `source-commit`, `myblue-approve.service` and its polkit rule (the check and approval, for `ujust update-system`), `luks-add-fido2-key.sh`, `keyaudit.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
 | `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key`, `audit-security-key` |
-| `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge and Mullvad installs, their RPM verifier, checks, `policy.json` additions; `myblue-approval-policy.sh`, after the `signing` module, which makes `policy.json` require the machine's approval |
+| `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge and Mullvad installs, their RPM verifier, checks, `policy.json` additions, COSMIC's keyring without its SSH agent; `myblue-approval-policy.sh`, after the `signing` module, which makes `policy.json` require the machine's approval |
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
 | `files/keys/` | Proton's Bridge and Mullvad's code signing keys, for checking their RPMs at build time |
 | `.github/workflows/build.yml` | Daily build plus an hourly check for a new secureblue base; base-image check, signing, provenance |
@@ -315,6 +315,15 @@ them into. USBGuard blocks the bootloader too, as a new device: allow it
 for the update with `usbguard allow-device <number>`, without
 `--permanent`. To update the rules, replace everything below the comment
 and change the commit in its first line.
+
+## No SSH agent
+
+COSMIC's `start-cosmic` starts gnome-keyring's SSH agent and points
+`SSH_AUTH_SOCK` at it. git's commit signing (`ssh-keygen -Y sign`) then
+hands the FIDO2 keys to that agent, which can't ask for their PIN, and
+fails with "agent refused operation". The build removes `ssh` from the
+keyring components `start-cosmic` starts, so `SSH_AUTH_SOCK` stays unset
+and ssh and git use the key files, asking for the PIN in the terminal.
 
 ## RamaLama
 

@@ -70,7 +70,8 @@ modules:
   #   signed RPM (no dnf repo exists), checked against files/keys/
   # - install-mullvad.sh: latest Mullvad VPN daemon and CLI, without the
   #   GUI, from Mullvad's signed RPM, checked the same way
-  # - myblue-image-setup.sh: build-time checks, permissions, policy.json
+  # - myblue-image-setup.sh: build-time checks, permissions, policy.json,
+  #   COSMIC's keyring without its SSH agent
   - type: script
     source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
     scripts:

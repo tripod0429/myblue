@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 IMAGE = "ghcr.io/tripod0429/myblue"
 DIGEST = "sha256:" + "1" * 64
 CHILD_DIGEST = "sha256:" + "2" * 64
+START_COSMIC = 'eval "$(gnome-keyring-daemon --start --components=pkcs11,secrets,ssh)"\n'
 MOCK = textwrap.dedent("""\
     import json
     import os
@@ -421,6 +422,9 @@ class ProvenanceTests(unittest.TestCase):
         policy.write_text(original)
         script = script.replace("/etc/containers/policy.json", str(policy))
         script = script.replace("/tmp/policy.json", str(self.root / "policy.tmp"))
+        start_cosmic = self.root / "start-cosmic"
+        start_cosmic.write_text(START_COSMIC)
+        script = script.replace("/usr/bin/start-cosmic", str(start_cosmic))
         for value in (None, "not-a-commit", self.installed):
             with self.subTest(value=value):
                 self.calls.write_text("")
@@ -435,6 +439,7 @@ class ProvenanceTests(unittest.TestCase):
                     self.assertFalse(any(call[0] == "chmod" for call in calls))
                 else:
                     self.assertIn(["chmod", "0644", str(self.anchor)], calls)
+                    self.assertNotIn(",ssh", start_cosmic.read_text())
 
 
 if __name__ == "__main__":
