@@ -9,6 +9,12 @@ description: Personal layer on top of secureblue
 base-image: ghcr.io/secureblue/cosmic-main-hardened
 image-version: latest
 
+# CI's working tags: build, build-<version>, and a timestamp and a commit
+# variant of it. Without this BlueBuild would push `latest`, which CI moves
+# only once the image is signed and has provenance.
+alt-tags:
+  - build
+
 # Same as secureblue's own recipes: don't add cosign or nushell to the image.
 cosign-version: none
 nushell-version: none

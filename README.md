@@ -590,7 +590,8 @@ they do not alter the host's hardening or start agents.
   (`source:` on each module in the recipe). When secureblue bumps them, in
   `.github/workflows/build-one-recipe.yml` and
   `recipes/common/common-modules.yml` on their `live` branch, copy the new
-  values.
+  values, but keep the CLI at v0.9.38 or later: `build.yml` reads the
+  pushed digest from its `--digestfile`.
 - **Following secureblue's package hardening:** compare
   `recipes/common/final-modules.yml` and the scripts listed in
   `files/scripts/upstream/README.md` with upstream, then update the vendored

@@ -297,9 +297,6 @@ jobs:
           # reinstall slsa-verifier without clashing with this copy.
           rm -rf ~/.slsa/
 
-      - name: Prepare archive folder
-        run: mkdir -p "$RUNNER_TEMP/oci"
-
       # Copied into /usr/share/myblue by the files module. The running image
       # uses its own source commit as the floor for future source histories.
       - name: Record image source commit
@@ -310,47 +307,45 @@ jobs:
           fi
           printf '%s\n' "$GITHUB_SHA" > files/system/usr/share/myblue/source-commit
 
-      # BlueBuild only builds, into an OCI archive. Left to push, it would
-      # sign whatever its first tag points to in the registry after the push
-      # (v0.9.37 looks the tag up again), and the digest to attest would have
-      # to be read back from a tag as well.
+      # BlueBuild builds and pushes, but doesn't sign (--no-sign): signing
+      # is the next job's. --digestfile records the digest its push returned,
+      # so nothing reads a tag back. Its tags come from alt-tags in the
+      # recipe: working tags nothing reads, never `latest`, which moves only
+      # in `promote`.
       - name: Build
         uses: blue-build/github-action@c295af864f2802fc6aea227507af43d35823db81 # v1.13.0
         with:
-          # Same CLI version as secureblue, verified before use. Bump it when they do.
-          cli_version: v0.9.37
+          # Verified before use. Bump it when secureblue does, but not below
+          # v0.9.38: older versions have no --digestfile.
+          cli_version: v0.9.41
           verify_install: true
           recipe: recipe.yml
-          push: false
-          build_opts: --archive ${{ runner.temp }}/oci
+          push: true
+          build_opts: --no-sign --digestfile ${{ runner.temp }}/digests.json
           registry_token: ${{ github.token }}
           skip_checkout: true
           maximize_build_space: true
 
-      # The digest is the one skopeo wrote, computed from the archive, and
-      # --preserve-digests makes skopeo fail rather than change it. `build`
-      # is a working tag nothing reads; `latest` moves only in `promote`.
-      - name: Push by digest
+      # A JSON map of the first tag BlueBuild pushed to the digest the push
+      # returned. One recipe, so one entry.
+      - name: Read pushed digest
         id: digest
         env:
           IMAGE: ${{ steps.recipe.outputs.image }}
-          TOKEN: ${{ github.token }}
-          TMPDIR: ${{ runner.temp }}
         run: |
-          shopt -s nullglob
-          archive=("$RUNNER_TEMP"/oci/*)
-          if [[ ${#archive[@]} -ne 1 ]]; then
-            echo "::error::expected one archive in $RUNNER_TEMP/oci, found ${#archive[@]}"
+          file=$RUNNER_TEMP/digests.json
+          if [[ $(jq length "$file") -ne 1 ]]; then
+            echo "::error::expected one image in $file, found: $(cat "$file")"
             exit 1
           fi
-          command -v skopeo > /dev/null || { sudo apt-get update -q && sudo apt-get install -yq skopeo; }
-          printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          skopeo copy --all --preserve-digests --retry-times 3 \
-            --digestfile "$RUNNER_TEMP/digest" \
-            "oci-archive:${archive[0]}" "docker://${IMAGE}:build"
-          digest=$(cat "$RUNNER_TEMP/digest")
+          ref=$(jq -r 'keys[0]' "$file")
+          digest=$(jq -r '.[]' "$file")
+          if [[ $ref != "${IMAGE}:"* ]]; then
+            echo "::error::BlueBuild pushed ${ref}, not a tag of ${IMAGE}"
+            exit 1
+          fi
           if [[ ! $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::skopeo wrote no digest: '${digest}'"
+            echo "::error::BlueBuild wrote no digest: '${digest}'"
             exit 1
           fi
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
