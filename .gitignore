@@ -13,3 +13,7 @@ Containerfile*
 # Generated Python bytecode from the regression tests.
 __pycache__/
 *.py[cod]
+
+# Reference content
+cli/
+website/
