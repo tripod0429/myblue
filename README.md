@@ -47,6 +47,7 @@ doesn't count.
 | `.github/dependabot.yml` | Weekly bumps for the pinned actions, in one PR |
 | `tests/test_signed_rpms.py` | Offline regression tests for Bridge and Mullvad verification and installation ordering |
 | `tests/test_provenance.py` | Offline source-history and signature checks with real Git history and throwaway SSH keys; CI source metadata checks |
+| `tests/test_build_workflow.py` | Offline checks of `build.yml`'s digest reader: CI signs only one digest, for a tag of this image |
 | `tests/test_setup_and_agent_checks.py` | Offline checks for agent-config confirmation and preserving existing setup hardening |
 | `bootstrap/trust-myblue.sh` | One-time: lets stock secureblue accept your image |
 | `keys/secureblue.pub` | secureblue's public key, for checking the base image (you add it) |

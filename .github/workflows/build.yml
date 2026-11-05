@@ -266,6 +266,17 @@ jobs:
             exit 1
           fi
 
+      # BlueBuild pushes before signing, provenance and promote, so it must
+      # never push `latest`: alt-tags in the recipe keeps it on `build`.
+      # Catches an edit that drops it. Not a security check: whoever can
+      # change the recipe can also change this file.
+      - name: Check BlueBuild's tags
+        run: |
+          if ! yq -o=json '."alt-tags"' recipes/recipe.yml | jq -e '. == ["build"]' > /dev/null; then
+            echo "::error::recipes/recipe.yml must set alt-tags to [build], so BlueBuild never pushes latest"
+            exit 1
+          fi
+
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
@@ -327,25 +338,23 @@ jobs:
           maximize_build_space: true
 
       # A JSON map of the first tag BlueBuild pushed to the digest the push
-      # returned. One recipe, so one entry.
+      # returned. One recipe, so the file must hold exactly one object with
+      # one entry: a tag of this image and a digest. Slurping (-s) catches
+      # anything after that object; \A and \z anchor the whole string.
+      # tests/test_build_workflow.py runs this step.
       - name: Read pushed digest
         id: digest
         env:
           IMAGE: ${{ steps.recipe.outputs.image }}
         run: |
           file=$RUNNER_TEMP/digests.json
-          if [[ $(jq length "$file") -ne 1 ]]; then
-            echo "::error::expected one image in $file, found: $(cat "$file")"
-            exit 1
-          fi
-          ref=$(jq -r 'keys[0]' "$file")
-          digest=$(jq -r '.[]' "$file")
-          if [[ $ref != "${IMAGE}:"* ]]; then
-            echo "::error::BlueBuild pushed ${ref}, not a tag of ${IMAGE}"
-            exit 1
-          fi
-          if [[ ! $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::BlueBuild wrote no digest: '${digest}'"
+          if ! digest=$(jq -ser --arg image "$IMAGE" '
+              select(length == 1) | .[0]
+              | select(type == "object" and length == 1) | to_entries[0]
+              | select(.key | startswith($image + ":")) | .value
+              | select(type == "string" and test("\\Asha256:[0-9a-f]{64}\\z"))
+              ' "$file"); then
+            echo "::error::expected one digest for a tag of ${IMAGE} in $file, found: $(cat "$file")"
             exit 1
           fi
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
