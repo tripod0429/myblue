@@ -599,12 +599,15 @@ they do not alter the host's hardening or start agents.
   scripts from a reviewed commit. Also follow their Harden-Runner pin and
   build endpoint allowlist. Dependabot handles the action version, not the
   endpoint list or vendored scripts.
-- **`ujust audit-secureblue`** reports `policy.json` as modified (INFO) and
-  warns about the two `docker.io` scopes, `quay.io/ramalama/ramalama`,
-  `ghcr.io/ggml-org/llama.cpp` and `ghcr.io/tinfoilsh/tinfoil-proxy`.
-  That's expected. Don't copy your
-  policy over `/usr/share/secureblue/etc/containers/policy.json` to silence
-  it: the audit would then stop checking the policy at all.
+- **`ujust audit-secureblue`** reports a system-wide override at
+  `/etc/containers/policy.json` (INFO) and warns about the two `docker.io`
+  scopes, `quay.io/ramalama/ramalama`, `ghcr.io/ggml-org/llama.cpp` and
+  `ghcr.io/tinfoilsh/tinfoil-proxy`. That's expected: since Fedora 45
+  secureblue ships its policy in `/usr/share/containers`, and the build
+  starts `/etc`'s from it and adds this image's rules. Don't run the
+  `rm` the audit suggests: podman would fall back to secureblue's policy,
+  which has no entry for this image, and `verify-provenance.sh` would stop
+  approving updates.
 
 ## Limits
 

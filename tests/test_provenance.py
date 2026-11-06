@@ -414,17 +414,29 @@ class ProvenanceTests(unittest.TestCase):
                 else:
                     self.assertEqual(marker.read_text(), sha + "\n")
 
-    def test_build_rejects_missing_or_invalid_source_metadata(self):
+    def image_setup(self):
         script = (ROOT / "files/scripts/myblue-image-setup.sh").read_text()
-        script = script.replace("/usr/share/myblue/source-commit", str(self.anchor))
-        policy = self.root / "policy.json"
+        self.etc_policy = self.root / "policy.json"
+        self.default_policy = self.root / "default-policy.json"
+        self.start_cosmic = self.root / "start-cosmic"
+        self.start_cosmic.write_text(START_COSMIC)
+        replacements = {
+            "/usr/share/myblue/source-commit": str(self.anchor),
+            "/etc/containers/policy.json": str(self.etc_policy),
+            "/usr/share/containers/policy.json": str(self.default_policy),
+            "/tmp/policy.json": str(self.root / "policy.tmp"),
+            "/usr/bin/start-cosmic": str(self.start_cosmic),
+        }
+        for original, replacement in replacements.items():
+            self.assertIn(original, script, f"Unrecognized script fixture: {original}")
+            script = script.replace(original, replacement)
+        return script
+
+    def test_build_rejects_missing_or_invalid_source_metadata(self):
+        script = self.image_setup()
+        policy, start_cosmic = self.etc_policy, self.start_cosmic
         original = '{"default":[{"type":"reject"}],"transports":{"docker":{}}}'
         policy.write_text(original)
-        script = script.replace("/etc/containers/policy.json", str(policy))
-        script = script.replace("/tmp/policy.json", str(self.root / "policy.tmp"))
-        start_cosmic = self.root / "start-cosmic"
-        start_cosmic.write_text(START_COSMIC)
-        script = script.replace("/usr/bin/start-cosmic", str(start_cosmic))
         for value in (None, "not-a-commit", self.installed):
             with self.subTest(value=value):
                 self.calls.write_text("")
@@ -440,6 +452,27 @@ class ProvenanceTests(unittest.TestCase):
                 else:
                     self.assertIn(["chmod", "0644", str(self.anchor)], calls)
                     self.assertNotIn(",ssh", start_cosmic.read_text())
+
+    def test_build_starts_from_secureblues_policy_when_etc_has_none(self):
+        script = self.image_setup()
+        secureblue = [{"type": "sigstoreSigned", "keyPath": "secureblue.pub"}]
+        default = {"default": [{"type": "reject"}],
+                   "transports": {"docker": {"ghcr.io/secureblue": secureblue}}}
+        self.default_policy.write_text(json.dumps(default))
+        result, _ = self.run_script(script)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        policy = json.loads(self.etc_policy.read_text())
+        self.assertEqual(policy["default"], [{"type": "reject"}])
+        self.assertEqual(policy["transports"]["docker"]["ghcr.io/secureblue"], secureblue)
+        self.assertEqual(policy["transports"]["docker"]["quay.io/ramalama/ramalama"],
+                         [{"type": "insecureAcceptAnything"}])
+        self.assertEqual(json.loads(self.default_policy.read_text()), default)
+
+    def test_build_fails_without_a_policy_to_start_from(self):
+        result, _ = self.run_script(self.image_setup())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.etc_policy.exists())
+        self.assertIn(",ssh", self.start_cosmic.read_text())
 
 
 if __name__ == "__main__":

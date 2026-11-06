@@ -20,13 +20,20 @@ chmod 0755 /usr/libexec/secureblue/verify-provenance.sh /usr/bin/myblue-setup \
   /usr/bin/myblue-opencode /usr/bin/myblue-agent-check \
   /usr/libexec/myblue/luks-add-fido2-key.sh /usr/libexec/myblue/keyaudit.sh
 
+# Since Fedora 45 secureblue ships its policy in /usr/share/containers,
+# which podman reads only when /etc/containers has none. Start /etc's
+# from it: this script, the signing module and myblue-approval-policy.sh
+# edit /etc's, and the module would otherwise write its own template
+# there, which accepts unsigned images from any registry.
+policy=/etc/containers/policy.json
+[[ -e $policy ]] || cp /usr/share/containers/policy.json "$policy"
+
 # Unsigned images I pull with podman. `ujust audit-secureblue` warns
 # about these scopes; that is expected. quay.io/ramalama/ramalama is
 # RamaLama's Vulkan image, which it picks for this GPU; it isn't signed.
 # ghcr.io/ggml-org/llama.cpp, the image the dotfiles' ramalama.service
 # runs, and ghcr.io/tinfoilsh/tinfoil-proxy, the dotfiles' quadlet, have
 # only GitHub build attestations, which policy.json can't check.
-policy=/etc/containers/policy.json
 jq '.transports.docker += {
       "docker.io/cloudron/base": [{"type": "insecureAcceptAnything"}],
       "docker.io/selenium/standalone-chromium": [{"type": "insecureAcceptAnything"}],
