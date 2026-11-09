@@ -39,9 +39,6 @@ modules:
         - libtool
         - gmp-devel
         - zenity
-        # Local LLMs in rootless podman containers. The model service that
-        # starts at login is a quadlet in the dotfiles.
-        - ramalama
         # fido2-token, for `ujust audit-security-key`. The image already has
         # its library (libfido2); this is only the command-line tool.
         - fido2-tools

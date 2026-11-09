@@ -328,11 +328,13 @@ and ssh and git use the key files, asking for the PIN in the terminal.
 
 ## RamaLama
 
-`ramalama` comes from Fedora's repos. It runs models in rootless podman
-containers, by default with an image from `quay.io/ramalama` that matches
-its minor version. Those images aren't signed (no cosign signatures or
-attachments), and secureblue's `policy.json` rejects anything it doesn't
-list, so `myblue-image-setup.sh` allows `quay.io/ramalama/ramalama`. That
+`ramalama` isn't in the image: the dotfiles install it from Homebrew. It
+runs models in rootless podman containers, by default with an image from
+`quay.io/ramalama` that matches its minor version. podman checks those
+pulls against the image's `policy.json` wherever `ramalama` comes from.
+The images aren't signed (no cosign signatures or attachments), and
+secureblue's `policy.json` rejects anything it doesn't list, so
+`myblue-image-setup.sh` allows `quay.io/ramalama/ramalama`. That
 is the Vulkan image RamaLama picks for AMD GPUs (both the laptop's and the
 desktop's), and the scope allows only it. If RamaLama starts picking another
 image (ROCm, say), the pull fails with a policy error. Add that repo on
