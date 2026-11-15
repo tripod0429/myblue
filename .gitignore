@@ -18,3 +18,5 @@ __pycache__/
 cli/
 website/
 template/
+# Local clone of upstream secureblue; anchored so files/.../libexec/secureblue/ stays tracked.
+/secureblue/
