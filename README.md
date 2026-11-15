@@ -120,16 +120,17 @@ restrictions:
     ```
     step-security/harden-runner@*,
     blue-build/*, sigstore/*, regclient/*, slsa-framework/*,
-    oras-project/setup-oras@*,
+    oras-project/setup-oras@*, carabiner-dev/actions/*,
     hastd/free-disk-space@*, docker/setup-buildx-action@*,
     docker/setup-qemu-action@*, google-github-actions/auth@*
     ```
     The last four are used inside BlueBuild's action and the SLSA
-    generator. If a run fails at *Set up job* with "not allowed", add the
-    action it names.
+    generator, and `carabiner-dev/actions` (AMPEL) inside the
+    slsa-verifier installer. If a run fails at *Set up job* with "not
+    allowed", add the action it names.
     Existing repos must add `step-security/harden-runner@*` before pushing
-    the runner-hardening changes, and `oras-project/setup-oras@*` before
-    pushing the SLSA v1 changes.
+    the runner-hardening changes, and `oras-project/setup-oras@*` and
+    `carabiner-dev/actions/*` before pushing the SLSA v1 changes.
   - Leave *Require actions to be pinned to a full-length commit SHA* **off**.
     The SLSA attester and generator must be referenced by tag. Everything
     else in `build.yml` is already pinned by SHA.
