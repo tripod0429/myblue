@@ -28,6 +28,10 @@ MOCK = textwrap.dedent("""\
         command = args[0]
         if command == "source-path":
             print("mock dotfiles")
+        elif command == "managed":
+            # By default every path asked about is managed.
+            default = "".join(arg + "\\n" for arg in args[1:] if arg.startswith("/"))
+            print(scenario.get("managed", default), end="")
         elif command == "status":
             print(scenario.get("changed", ""), end="")
         elif command == "unmanaged":
@@ -90,7 +94,7 @@ class AgentCheckTests(ScriptTests):
     def test_clean_config_starts_without_confirmation_and_checks_opencode_skills(self):
         result, calls = self.run_script(self.script)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for command in ("status", "unmanaged"):
+        for command in ("managed", "unmanaged"):
             self.assertIn(str(self.skills), next(call for call in calls if call[:2] ==
                                                 ["chezmoi", command]))
 
@@ -101,9 +105,22 @@ class AgentCheckTests(ScriptTests):
         result, calls = self.run_script(self.script, env={"XDG_CONFIG_HOME": str(config)})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(str(skills), next(call for call in calls if call[:2] ==
-                                       ["chezmoi", "status"]))
+                                       ["chezmoi", "managed"]))
         self.assertIn(str(skills), next(call for call in calls if call[:2] ==
                                        ["chezmoi", "unmanaged"]))
+
+    def test_status_compares_only_the_managed_entries_under_the_agent_paths(self):
+        entries = [str(self.home / ".claude/CLAUDE.md"), str(self.home / ".claude/skills")]
+        result, calls = self.run_script(self.script, managed="".join(e + "\n" for e in entries))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = next(call for call in calls if call[:2] == ["chezmoi", "status"])
+        self.assertEqual(status[2:], ["--recursive=false", *entries])
+
+    def test_without_managed_entries_status_never_compares_every_dotfile(self):
+        result, calls = self.run_script(self.script, managed="", new=".config/opencode/skills\n")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn(["chezmoi", "status"], [call[:2] for call in calls])
+        self.assertIn("new:     .config/opencode/skills", result.stderr)
 
     def test_changed_or_new_skills_need_explicit_confirmation(self):
         for scenario in ({"changed": " M .config/opencode/skills/example/SKILL.md\n"},
@@ -124,7 +141,7 @@ class AgentCheckTests(ScriptTests):
                 self.assertIn("chezmoi is unavailable", result.stderr)
 
     def test_failed_chezmoi_checks_need_confirmation_even_with_empty_output(self):
-        for command in ("source-path", "status", "unmanaged"):
+        for command in ("source-path", "managed", "status", "unmanaged"):
             for answer, expected in (("", 1), ("y\n", 0)):
                 with self.subTest(command=command, answer=answer):
                     result, _ = self.run_script(self.script, answer=answer,
@@ -137,6 +154,68 @@ class AgentCheckTests(ScriptTests):
         self.assertEqual(result.returncode, 0, result.stderr)
         result, _ = self.run_script(self.script, new=".claude/skills/synced\n.config/opencode/skills/new\n")
         self.assertNotEqual(result.returncode, 0)
+
+
+@unittest.skipUnless(shutil.which("chezmoi"), "chezmoi is not installed")
+class AgentCheckWithChezmoiTests(ScriptTests):
+    """Real chezmoi, with dotfiles shaped like mine: the agent folders' source
+    holds only .keep, and Emacs's config is managed too."""
+
+    AGENT_FOLDERS = (".claude/skills", ".claude/agents", ".config/opencode/agents")
+    INIT = ".local/share/bubblejail/instances/Emacs/home/.config/emacs/init.el"
+
+    def setUp(self):
+        super().setUp()
+        (self.bin / "chezmoi").unlink()
+        self.script = (ROOT / "files/system/usr/bin/myblue-agent-check").read_text()
+        for folder in self.AGENT_FOLDERS:
+            self.source(folder).mkdir(parents=True)
+            (self.source(folder) / ".keep").touch()
+        for target, text in ((".claude/CLAUDE.md", "instructions\n"),
+                             (".config/opencode/AGENTS.md", "instructions\n"),
+                             (self.INIT, ";; init\n")):
+            self.source(target).parent.mkdir(parents=True, exist_ok=True)
+            self.source(target).write_text(text)
+        result, _ = self.run_script("chezmoi apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def source(self, target):
+        """The target's path in chezmoi's source: each leading dot becomes dot_."""
+        return self.home / ".local/share/chezmoi" / Path(*(
+            "dot_" + part[1:] if part.startswith(".") else part for part in Path(target).parts))
+
+    def run_script(self, script, **kwargs):
+        env = {f"XDG_{name}_HOME": str(self.home / path) for name, path in
+               (("CACHE", ".cache"), ("DATA", ".local/share"), ("STATE", ".local/state"))}
+        return super().run_script(script, env=env, **kwargs)
+
+    def test_clean_config_starts_even_after_emacs_edits_its_own_config(self):
+        result, _ = self.run_script(self.script)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (self.home / self.INIT).write_text(";; edited by Emacs\n")
+        result, _ = self.run_script(self.script)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_new_files_in_keep_only_folders_need_confirmation(self):
+        for folder in self.AGENT_FOLDERS:
+            for new in ("new.md", "new/SKILL.md"):
+                with self.subTest(folder=folder, new=new):
+                    path = self.home / folder / new
+                    path.parent.mkdir(exist_ok=True)
+                    path.touch()
+                    result, _ = self.run_script(self.script)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn(f"new:     {folder}/{Path(new).parts[0]}", result.stderr)
+                    shutil.rmtree(self.home / folder / "new", ignore_errors=True)
+                    path.unlink(missing_ok=True)
+
+    def test_changed_instructions_and_unmanaged_opencode_skills_need_confirmation(self):
+        (self.home / ".claude/CLAUDE.md").write_text("edited\n")
+        (self.home / ".config/opencode/skills/new").mkdir(parents=True)
+        result, _ = self.run_script(self.script)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("changed: .claude/CLAUDE.md", result.stderr)
+        self.assertIn("new:     .config/opencode/skills", result.stderr)
 
 
 class SetupTests(ScriptTests):

@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 # Runs opencode inside the nono sandbox the `opencode` alias starts it in
-# (/etc/profile.d/myblue.sh, profile opencode-haskell from the dotfiles).
+# (/etc/profile.d/myblue.sh, profile opencode-guile from the dotfiles).
 # opencode 2 always talks to a local server, and --standalone starts a
 # private one on a random port. The sandbox can't allow that without
 # allowing every local port, including that of a background server running

@@ -32,8 +32,19 @@ if ! chezmoi source-path >/dev/null 2>&1; then
   unchecked "no accessible chezmoi dotfiles"
 fi
 
-if ! changed=$(chezmoi status "${paths[@]}"); then
-  unchecked "chezmoi status failed"
+# chezmoi status refuses a path the dotfiles don't manage, so ask it only
+# about the entries they manage under these paths, as chezmoi names them.
+# A folder whose source holds only .keep is still managed, as an empty
+# folder; one with no source at all is left to the unmanaged check below.
+if ! managed=$(chezmoi managed --path-style absolute "${paths[@]}"); then
+  unchecked "chezmoi managed failed"
+fi
+changed=
+if [[ -n $managed ]]; then
+  mapfile -t entries <<<"$managed"
+  if ! changed=$(chezmoi status --recursive=false "${entries[@]}"); then
+    unchecked "chezmoi status failed"
+  fi
 fi
 
 existing=()

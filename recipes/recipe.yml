@@ -27,18 +27,13 @@ modules:
     install:
       install-weak-deps: false
       packages:
-        # Doom Emacs runs inside Bubblejail, which sees the host's /usr
-        # but not Homebrew, so its tools come from Fedora.
+        - zenity
+        # Emacs runs inside Bubblejail, which sees the host's /usr but not
+        # Homebrew, so its tools come from Fedora. emacs pulls in libgccjit
+        # and gcc, for native compilation and tree-sitter grammars.
         - emacs
         - ripgrep
         - fd-find
-        # Build toolchain for GHC/cabal (ghcup) and Emacs native modules.
-        - gcc-c++
-        - make
-        - cmake
-        - libtool
-        - gmp-devel
-        - zenity
         # fido2-token, for `ujust audit-security-key`. The image already has
         # its library (libfido2); this is only the command-line tool.
         - fido2-tools

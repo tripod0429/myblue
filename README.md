@@ -404,7 +404,7 @@ commit-signature verification.
 `/etc/skel`'s versions (or empty) and makes them immutable. Backups go to
 `~/bash_env_files`. Turning it off only lifts the immutability, so anything
 in those files is lost each time it's turned on. So the settings you'd put
-there (ghcup on `PATH`, the claude and opencode aliases) are in
+there (the claude and opencode aliases) are in
 `files/system/etc/profile.d/myblue.sh`, the same place secureblue ships its
 own (`gnome-disable-jit.sh`,
 `xx-bash-prompt-command.sh`). Being in the image, they're root-owned and
@@ -412,7 +412,7 @@ signed like the rest of it. The dotfiles leave `~/.bashrc` and
 `~/.bash_profile` to secureblue.
 
 The `claude` and `opencode` aliases start them inside nono, with the
-`claude-haskell` and `opencode-haskell` profiles from the dotfiles. Both
+`claude-guile` and `opencode-guile` profiles from the dotfiles. Both
 agents can write their own config, and hooks in it would run
 with your full access in a session started without nono. `command claude`
 skips the alias.
@@ -452,10 +452,15 @@ skips the alias.
   them. It compares them with the dotfiles (`chezmoi status` and
   `chezmoi unmanaged`) and asks before starting the agent if a file
   changed or a new one appeared.
-  OpenCode's skills directory is included, and its paths respect
-  `XDG_CONFIG_HOME`. Missing chezmoi/dotfiles or a failed check also require
-  explicit confirmation. Without an affirmative answer, the agent will not
-  start.
+  It checks a fixed list, `CLAUDE.md`, `skills` and `agents` in
+  `~/.claude` and `AGENTS.md`, `skills` and `agents` in
+  `~/.config/opencode` (which respects `XDG_CONFIG_HOME`), and no other
+  dotfiles: Emacs edits its own config. The dotfiles keep the agent
+  folders as empty folders (`.keep` in the source), so any file in one is
+  new. A listed path the dotfiles don't manage at all counts as new
+  whenever it exists, even empty. Missing chezmoi/dotfiles or a failed
+  check also require explicit confirmation. Without an affirmative answer,
+  the agent will not start.
 
 Don't put anything there that evaluates user-writable config at shell
 start (`mise activate`, `direnv hook` and the like): malware running as you
@@ -509,7 +514,9 @@ root bootstrap still verifies signatures without an installed source marker,
 and that unprivileged callers can only request the fixed approval service.
 They do not prove the GPG/registry approval mechanism end to end.
 The launch/setup tests mock chezmoi, ujust and filesystem-attribute checks;
-they do not alter the host's hardening or start agents.
+they do not alter the host's hardening or start agents. Where chezmoi is
+installed, the agent check also runs against real chezmoi, with throwaway
+dotfiles in a temporary home.
 
 ## Day to day
 
