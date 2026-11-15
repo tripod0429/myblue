@@ -124,15 +124,15 @@ restrictions:
     hastd/free-disk-space@*, docker/setup-buildx-action@*,
     docker/setup-qemu-action@*, google-github-actions/auth@*
     ```
-    The last four are used inside BlueBuild's action and the SLSA
-    generator, and `carabiner-dev/actions` (AMPEL) inside the
-    slsa-verifier installer. If a run fails at *Set up job* with "not
-    allowed", add the action it names.
+    The last four were listed for BlueBuild's action and the SLSA v0.2
+    generator `build.yml` used to run. `carabiner-dev/actions` (AMPEL) is
+    used inside the slsa-verifier installer. If a run fails at *Set up job*
+    with "not allowed", add the action it names.
     Existing repos must add `step-security/harden-runner@*` before pushing
     the runner-hardening changes, and `oras-project/setup-oras@*` and
     `carabiner-dev/actions/*` before pushing the SLSA v1 changes.
   - Leave *Require actions to be pinned to a full-length commit SHA* **off**.
-    The SLSA attester and generator must be referenced by tag. Everything
+    The SLSA attester must be referenced by tag. Everything
     else in `build.yml` is already pinned by SHA.
   - *Workflow permissions*: read repository contents only. Untick *Allow
     GitHub Actions to create and approve pull requests*.
@@ -470,8 +470,8 @@ has a small allowlist for GitHub, GHCR and Sigstore; the build follows
 secureblue's endpoint allowlist with GitHub's API and Proton added. A new
 dependency or changed mirror may require an allowlist update. Investigate
 the blocked endpoint rather than switching to audit mode or allowing all
-outbound traffic. The SLSA attester and generator remain upstream's
-reusable workflows. The job that pushes the attester's statement also
+outbound traffic. The SLSA attester remains upstream's reusable
+workflow. The job that pushes the attester's statement also
 allows GitHub's artifact storage, where it downloads the statement from.
 
 Unlike secureblue, both steps set `disable-telemetry: true`, so the runner's
@@ -612,12 +612,12 @@ they do not alter the host's hardening or start agents.
   scripts from a reviewed commit. Also follow their Harden-Runner pin and
   build endpoint allowlist. Dependabot handles the action version, not the
   endpoint list or vendored scripts.
-- **The older SLSA v0.2 provenance:** in November 2026 secureblue moved to
-  SLSA v1 provenance, `oras` and a new `slsa-verifier`, and renamed
-  `verify-provenance.sh` to `verify-provenance`; this repo followed. Images
-  from before that check SLSA v0.2 provenance, so `build.yml` still
-  publishes it (`old-provenance`) for the update from such an image. Drop
-  that job once no deployment you might boot is from before the switch.
+- **Booting an image from before November 2026:** those images (the ones
+  with `verify-provenance.sh`) check SLSA v0.2 provenance, which
+  `build.yml` no longer publishes, so they refuse every update. Boot a newer
+  deployment instead. secureblue moved to SLSA v1 provenance, `oras` and a
+  new `slsa-verifier` then, and renamed the check to `verify-provenance`;
+  this repo followed.
 - **`ujust audit-secureblue`** reports a system-wide override at
   `/etc/containers/policy.json` (INFO) and warns about the two `docker.io`
   scopes, `quay.io/ramalama/ramalama`, `ghcr.io/ggml-org/llama.cpp` and

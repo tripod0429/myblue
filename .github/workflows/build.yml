@@ -20,7 +20,7 @@ env:
 # One run at a time, so `latest` moves in the order runs started. Every job
 # has a timeout-minutes well above its usual time, so a stuck one fails
 # instead of holding up later runs for GitHub's default of 6 hours. (The
-# provenance jobs call reusable workflows, which can't set one.)
+# provenance job calls a reusable workflow, which can't set one.)
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -537,31 +537,11 @@ jobs:
           oras push "${IMAGE}:${DIGEST/:/-}-provenance" \
             provenance.intoto.json:application/vnd.dsse.envelope.v1+json
 
-  # The older SLSA v0.2 provenance, which only the update check in images
-  # built before the switch to v1 reads: it checks the first image of yours
-  # built after it. Keep it until no deployment you might boot has that
-  # check, as secureblue keeps theirs for now.
-  old-provenance:
-    name: Provenance (SLSA v0.2)
-    needs: build
-    permissions:
-      actions: read
-      id-token: write
-      packages: write
-    # Must be referenced by tag, not commit SHA: the generator checks its own ref.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
-    with:
-      image: ${{ needs.build.outputs.image }}
-      digest: ${{ needs.build.outputs.digest }}
-      registry-username: ${{ github.actor }}
-    secrets:
-      registry-password: ${{ secrets.GITHUB_TOKEN }}
-
   # Only now does `latest`, the tag your machine follows, move: to the digest
   # this run built, once its signature and provenance check out.
   promote:
     name: Tag latest
-    needs: [build, sign, push-provenance, old-provenance]
+    needs: [build, sign, push-provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
