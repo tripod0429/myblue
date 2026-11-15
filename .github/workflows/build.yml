@@ -12,10 +12,15 @@ on:
 
 permissions: {}
 
+# Who signs SLSA v1 provenance, secureblue's and this image's: a tagged
+# release of the SLSA attester's workflow. For slsa-verifier's --signer.
+env:
+  SLSA_SIGNER: 'sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/slsa-framework/actions/\.github/workflows/attest_actions\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+'
+
 # One run at a time, so `latest` moves in the order runs started. Every job
 # has a timeout-minutes well above its usual time, so a stuck one fails
 # instead of holding up later runs for GitHub's default of 6 hours. (The
-# provenance job calls a reusable workflow, which can't set one.)
+# provenance jobs call reusable workflows, which can't set one.)
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -36,7 +41,7 @@ jobs:
       build: ${{ steps.check.outputs.build }}
     steps:
       - name: Restrict runner egress
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: block
           disable-telemetry: true
@@ -44,6 +49,7 @@ jobs:
             github.com:443
             api.github.com:443
             release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             tuf-repo-cdn.sigstore.dev:443
@@ -55,7 +61,7 @@ jobs:
           persist-credentials: false
 
       # Your machine only installs images built from a commit signed by a
-      # key in allowed_signers (verify-provenance.sh). Failing here too
+      # key in allowed_signers (verify-provenance). Failing here too
       # turns an unsigned or web-merged commit into a failed run, instead of
       # updates quietly stopping. Not a security check: whoever can push to
       # main can also change this file.
@@ -68,8 +74,17 @@ jobs:
       - name: Test security checks
         run: python3 -m unittest discover -s tests -v
 
+      - name: Install ORAS
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+        with:
+          version: 1.3.6
+
+      # slsa-framework/verifier, which replaced slsa-framework/slsa-verifier
+      # under the same command name; as secureblue installs it.
       - name: Install slsa-verifier
-        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+        uses: slsa-framework/actions/install/verifier@3efdf6f2112b1170cb369442620788752df11bca # v0.2.0
+        with:
+          version: v0.1.1
 
       - name: Install regctl
         uses: regclient/actions/regctl-installer@dd58ad94f76adb73d8ac1bf75ed25f01545d5b32 # v0.2.0
@@ -88,8 +103,13 @@ jobs:
           elif ! digest=$(regctl image digest "${image}:latest"); then
             reason="no published image"
             build=true
-          elif ! slsa-verifier verify-image --source-uri "github.com/${GITHUB_REPOSITORY,,}" \
-              --source-branch main "${image}@${digest}" > /dev/null; then
+          elif ! oras pull -o "$RUNNER_TEMP/provenance" "${image}:${digest/:/-}-provenance" > /dev/null ||
+              ! slsa-verifier build "$RUNNER_TEMP/provenance/provenance.intoto.json" \
+                --level 3 --require-signatures --signer "$SLSA_SIGNER" --subject "$digest" \
+                --param "expected_source:https://github.com/${GITHUB_REPOSITORY,,}" \
+                --param expected_branch:main \
+                --param "trusted_builders:[https://github.com/${GITHUB_REPOSITORY,,}/.github/workflows/build.yml@refs/heads/main]" \
+                > /dev/null; then
             reason="published image fails its provenance check"
             build=true
           else
@@ -124,14 +144,15 @@ jobs:
       image: ${{ steps.recipe.outputs.image }}
       digest: ${{ steps.digest.outputs.digest }}
     steps:
-      # secureblue's allowlist at 39502947d5612c1fb674cf5cdaff9f6a3ab271c8,
-      # with GitHub's API, Proton and Mullvad added for this build. In order:
+      # secureblue's allowlist at ac440c8ecd425782fc589c303bcde6bd4415f599
+      # (.github/workflows/runner-allowed-endpoints.txt there), with GitHub's
+      # API, Proton and Mullvad added for this build. In order:
       # Ubuntu packages; GitHub Actions, release binaries and verification
       # keys; container registries and BlueBuild; package repositories, Proton
       # Mail Bridge and Mullvad; Fedora mirrors. Keep comments out of the list
       # itself: Harden-Runner reads every word in it as a domain.
       - name: Restrict runner egress
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: block
           disable-telemetry: true
@@ -163,6 +184,8 @@ jobs:
             auth.docker.io:443
             copr.fedorainfracloud.org:443
             download.copr.fedorainfracloud.org:443
+            packages.redhat.com:443
+            copr-pulp-prod.s3.amazonaws.com:443
             negativo17.org:443
             repo.secureblue.dev:443
             fedoraproject-updates-archive.fedoraproject.org:443
@@ -255,11 +278,11 @@ jobs:
 
       # The update check on your machine must look for the image this run
       # builds, from this repo. Catches a renamed repo or recipe.
-      - name: Check verify-provenance.sh
+      - name: Check verify-provenance
         env:
           IMAGE: ${{ steps.recipe.outputs.image }}
         run: |
-          f=files/system/usr/libexec/secureblue/verify-provenance.sh
+          f=files/system/usr/libexec/secureblue/verify-provenance
           if ! grep -qx "readonly IMAGE=${IMAGE}" "$f" ||
              ! grep -qx "readonly SOURCE=github.com/${GITHUB_REPOSITORY,,}" "$f"; then
             echo "::error::$f must point at ${IMAGE} and github.com/${GITHUB_REPOSITORY,,}"
@@ -282,15 +305,25 @@ jobs:
         with:
           cosign-release: v2.6.0
 
+      - name: Install ORAS
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+        with:
+          version: 1.3.6
+
+      # slsa-framework/verifier, which replaced slsa-framework/slsa-verifier
+      # under the same command name; as secureblue installs it.
       - name: Install slsa-verifier
-        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+        uses: slsa-framework/actions/install/verifier@3efdf6f2112b1170cb369442620788752df11bca # v0.2.0
+        with:
+          version: v0.1.1
 
       - name: Install regctl
         uses: regclient/actions/regctl-installer@dd58ad94f76adb73d8ac1bf75ed25f01545d5b32 # v0.2.0
 
       # Same check secureblue's own pipeline does on its base images: the
       # base must be signed with secureblue's key (vendored in keys/) and
-      # built by secureblue's workflow from their `live` branch.
+      # built by secureblue's workflow from their `live` branch (SLSA v1
+      # provenance, pushed next to the image).
       - name: Verify secureblue base image
         id: base
         env:
@@ -299,14 +332,19 @@ jobs:
         run: |
           digest=$(regctl image digest "${BASE}:${BASE_TAG}")
           cosign verify --key keys/secureblue.pub "${BASE}@${digest}" > /dev/null
-          slsa-verifier verify-image \
-            --source-uri github.com/secureblue/secureblue \
-            --source-branch live \
-            "${BASE}@${digest}"
+          oras pull -o "$RUNNER_TEMP/base-provenance" "${BASE}:${digest/:/-}-provenance"
+          slsa-verifier build "$RUNNER_TEMP/base-provenance/provenance.intoto.json" \
+            --level 3 \
+            --require-signatures \
+            --signer "$SLSA_SIGNER" \
+            --subject "$digest" \
+            --param expected_source:github.com/secureblue/secureblue \
+            --param expected_branch:live \
+            --param 'trusted_builders:[https://github.com/secureblue/secureblue/.github/workflows/build-all.yml@refs/heads/live]'
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
           # As in secureblue's pipeline: let BlueBuild's verify_install
           # reinstall slsa-verifier without clashing with this copy.
-          rm -rf ~/.slsa/
+          rm -rf ~/.slsa/ "$RUNNER_TEMP/base-provenance"
 
       # Copied into /usr/share/myblue by the files module. The running image
       # uses its own source commit as the floor for future source histories.
@@ -390,7 +428,7 @@ jobs:
       packages: write
     steps:
       - name: Restrict runner egress
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: block
           disable-telemetry: true
@@ -430,10 +468,81 @@ jobs:
           cosign verify --key cosign.pub "${IMAGE}@${DIGEST}" > /dev/null
 
   # Signed statement from GitHub that this digest was built by this
-  # workflow, from this repo and branch. verify-provenance.sh on your
-  # machine checks it before every update.
+  # workflow, from this repo and branch: SLSA v1 provenance, made the way
+  # secureblue makes theirs. verify-provenance on your machine checks it
+  # before every update.
   provenance:
     name: Provenance
+    needs: build
+    permissions:
+      actions: read # to see the build job
+      contents: read
+      id-token: write # to sign the statement
+    # By tag, not commit SHA: slsa-verifier only accepts statements signed
+    # by a tagged release of this workflow (SLSA_SIGNER).
+    uses: slsa-framework/actions/.github/workflows/attest_actions.yml@v0.2.0
+    with:
+      build-from-source: false
+      version: v0.1.1
+      watch-jobs: build
+      collect-artifacts: false
+      subjects: ${{ needs.build.outputs.digest }}
+      artifact-name: slsa-provenance
+
+  # Stores the statement where verify-provenance looks for it, next to the
+  # image: <image>:sha256-<digest>-provenance. Pushed from its own directory
+  # under its bare name, which is the name `oras pull` gives it back.
+  push-provenance:
+    name: Push provenance
+    needs: [build, provenance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      packages: write
+    steps:
+      # Artifacts download from GitHub's results service and Azure storage.
+      - name: Restrict runner egress
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            release-assets.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            *.blob.core.windows.net:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+
+      - name: Install ORAS
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+        with:
+          version: 1.3.6
+
+      - name: Download provenance
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: slsa-provenance
+          path: ${{ runner.temp }}/provenance
+
+      - name: Push provenance
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          cd "$RUNNER_TEMP/provenance"
+          oras push "${IMAGE}:${DIGEST/:/-}-provenance" \
+            provenance.intoto.json:application/vnd.dsse.envelope.v1+json
+
+  # The older SLSA v0.2 provenance, which only the update check in images
+  # built before the switch to v1 reads: it checks the first image of yours
+  # built after it. Keep it until no deployment you might boot has that
+  # check, as secureblue keeps theirs for now.
+  old-provenance:
+    name: Provenance (SLSA v0.2)
     needs: build
     permissions:
       actions: read
@@ -452,7 +561,7 @@ jobs:
   # this run built, once its signature and provenance check out.
   promote:
     name: Tag latest
-    needs: [build, sign, provenance]
+    needs: [build, sign, push-provenance, old-provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -460,7 +569,7 @@ jobs:
       packages: write
     steps:
       - name: Restrict runner egress
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: block
           disable-telemetry: true
@@ -484,8 +593,17 @@ jobs:
         with:
           cosign-release: v2.6.0
 
+      - name: Install ORAS
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+        with:
+          version: 1.3.6
+
+      # slsa-framework/verifier, which replaced slsa-framework/slsa-verifier
+      # under the same command name; as secureblue installs it.
       - name: Install slsa-verifier
-        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+        uses: slsa-framework/actions/install/verifier@3efdf6f2112b1170cb369442620788752df11bca # v0.2.0
+        with:
+          version: v0.1.1
 
       - name: Install regctl
         uses: regclient/actions/regctl-installer@dd58ad94f76adb73d8ac1bf75ed25f01545d5b32 # v0.2.0
@@ -497,8 +615,17 @@ jobs:
           TOKEN: ${{ github.token }}
         run: |
           cosign verify --key cosign.pub "${IMAGE}@${DIGEST}" > /dev/null
-          slsa-verifier verify-image --source-uri "github.com/${GITHUB_REPOSITORY,,}" \
-            --source-branch main "${IMAGE}@${DIGEST}" > /dev/null
+          # The same check as verify-provenance on your machine.
+          oras pull -o "$RUNNER_TEMP/provenance" "${IMAGE}:${DIGEST/:/-}-provenance"
+          slsa-verifier build "$RUNNER_TEMP/provenance/provenance.intoto.json" \
+            --level 3 \
+            --require-signatures \
+            --signer "$SLSA_SIGNER" \
+            --subject "$DIGEST" \
+            --param "expected_source:https://github.com/${GITHUB_REPOSITORY,,}" \
+            --param expected_branch:main \
+            --param "trusted_builders:[https://github.com/${GITHUB_REPOSITORY,,}/.github/workflows/build.yml@refs/heads/main]" \
+            > /dev/null
           printf '%s' "$TOKEN" | regctl registry login ghcr.io --user "$GITHUB_ACTOR" --pass-stdin
           regctl image copy "${IMAGE}@${DIGEST}" "${IMAGE}:latest"
           # Only a report: the tag can be moved again at any time, which is

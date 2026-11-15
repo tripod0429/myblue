@@ -1,7 +1,7 @@
 ---
 # yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
 # `name` must match the GitHub repo name and the constants in
-# files/system/usr/libexec/secureblue/verify-provenance.sh (the build checks).
+# files/system/usr/libexec/secureblue/verify-provenance (the build checks).
 name: myblue
 description: Personal layer on top of secureblue
 
@@ -23,7 +23,7 @@ nushell-version: none
 # recipes/common/common-modules.yml. Bump it when they do.
 modules:
   - type: dnf
-    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    source: ghcr.io/blue-build/modules@sha256:bb9eddf80d21f7dbe9514ed9e1e0ba052a33d4e2c72b940916cd0d5fee7b0f94
     install:
       install-weak-deps: false
       packages:
@@ -46,7 +46,7 @@ modules:
   # files/system/ is copied to / :
   # - Trivalent managed policies (correct SELinux labels, no restorecon)
   # - myblue-setup, the one-time setup helper
-  # - verify-provenance.sh, replacing secureblue's so updates check
+  # - verify-provenance, replacing secureblue's so updates check
   #   this repo's provenance instead of secureblue's, then approve the
   #   image for the machine; myblue-approve.service and its polkit rule
   #   let `ujust update-system` do that without a password
@@ -54,7 +54,7 @@ modules:
   # - the tmpfiles.d link from /opt to Mullvad's files in /usr/lib/opt
   # - keyaudit.sh, behind `ujust audit-security-key`
   - type: files
-    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    source: ghcr.io/blue-build/modules@sha256:bb9eddf80d21f7dbe9514ed9e1e0ba052a33d4e2c72b940916cd0d5fee7b0f94
     files:
       - source: system
         destination: /
@@ -64,7 +64,7 @@ modules:
   # the enrolled key instead); audit-security-key reports what the plugged-in
   # key is used for and what a backup key still needs.
   - type: justfiles
-    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    source: ghcr.io/blue-build/modules@sha256:bb9eddf80d21f7dbe9514ed9e1e0ba052a33d4e2c72b940916cd0d5fee7b0f94
     validate: true
 
   # Script files rather than snippets: the module runs each line of a
@@ -76,7 +76,7 @@ modules:
   # - myblue-image-setup.sh: build-time checks, permissions, policy.json,
   #   COSMIC's keyring without its SSH agent
   - type: script
-    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    source: ghcr.io/blue-build/modules@sha256:bb9eddf80d21f7dbe9514ed9e1e0ba052a33d4e2c72b940916cd0d5fee7b0f94
     scripts:
       - install-proton-bridge.sh
       - install-mullvad.sh
@@ -95,11 +95,11 @@ modules:
   # Installs cosign.pub and adds this image to policy.json, so rpm-ostree
   # only accepts images signed with your key.
   - type: signing
-    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    source: ghcr.io/blue-build/modules@sha256:bb9eddf80d21f7dbe9514ed9e1e0ba052a33d4e2c72b940916cd0d5fee7b0f94
 
   # After signing: policy.json also requires the machine's own approval,
-  # which verify-provenance.sh gives an image once it passes its checks.
+  # which verify-provenance gives an image once it passes its checks.
   - type: script
-    source: ghcr.io/blue-build/modules@sha256:f1273b17987eed439b0feff77bf4b7f1c734e6f77607dc99c9de9d9070555c7a
+    source: ghcr.io/blue-build/modules@sha256:bb9eddf80d21f7dbe9514ed9e1e0ba052a33d4e2c72b940916cd0d5fee7b0f94
     scripts:
       - myblue-approval-policy.sh

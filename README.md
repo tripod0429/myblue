@@ -12,7 +12,7 @@ supply-chain model:
    move to it. Provenance is a statement signed by GitHub saying this
    image was built by this repo's workflow, from `main`.
 3. **The machine** checks three things before every update:
-   - `verify-provenance.sh` checks the provenance, then checks that the
+   - `verify-provenance` checks the provenance, then checks that the
      commit the image was built from is signed by a key in
      `/usr/share/myblue/allowed_signers` (the `ssh:tripod0429` FIDO2 key of
      each of your security keys).
@@ -38,7 +38,7 @@ doesn't count.
 | File | Purpose |
 |---|---|
 | `recipes/recipe.yml` | What goes into the image |
-| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance.sh`, its `allowed_signers` and generated `source-commit`, `myblue-approve.service` and its polkit rule (the check and approval, for `ujust update-system`), `luks-add-fido2-key.sh`, `keyaudit.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
+| `files/system/` | Copied to `/`: Trivalent policies, `myblue-setup`, `verify-provenance`, its `allowed_signers` and generated `source-commit`, `myblue-approve.service` and its polkit rule (the check and approval, for `ujust update-system`), `luks-add-fido2-key.sh`, `keyaudit.sh`, shell settings (`/etc/profile.d/myblue.sh`), the tmpfiles.d link to Mullvad's files, Nitrokey's udev rules |
 | `files/justfiles/myblue.just` | Extra `ujust` commands: `add-luks-fido2-key`, `audit-security-key` |
 | `files/scripts/` | Run at build time, not shipped: Proton Mail Bridge and Mullvad installs, their RPM verifier, checks, `policy.json` additions, COSMIC's keyring without its SSH agent; `myblue-approval-policy.sh`, after the `signing` module, which makes `policy.json` require the machine's approval |
 | `files/scripts/upstream/` | Unmodified, commit-pinned secureblue package cleanup and checks |
@@ -58,7 +58,7 @@ doesn't count.
 ### 1. Fill in the blanks
 
 - Your GitHub username, in lowercase, is set in:
-  - `files/system/usr/libexec/secureblue/verify-provenance.sh`
+  - `files/system/usr/libexec/secureblue/verify-provenance`
   - `bootstrap/trust-myblue.sh`
 
   The build fails if the first one doesn't match the repo it builds from.
@@ -120,6 +120,7 @@ restrictions:
     ```
     step-security/harden-runner@*,
     blue-build/*, sigstore/*, regclient/*, slsa-framework/*,
+    oras-project/setup-oras@*,
     hastd/free-disk-space@*, docker/setup-buildx-action@*,
     docker/setup-qemu-action@*, google-github-actions/auth@*
     ```
@@ -127,10 +128,11 @@ restrictions:
     generator. If a run fails at *Set up job* with "not allowed", add the
     action it names.
     Existing repos must add `step-security/harden-runner@*` before pushing
-    the runner-hardening changes.
+    the runner-hardening changes, and `oras-project/setup-oras@*` before
+    pushing the SLSA v1 changes.
   - Leave *Require actions to be pinned to a full-length commit SHA* **off**.
-    The SLSA generator must be referenced by tag. Everything else in
-    `build.yml` is already pinned by SHA.
+    The SLSA attester and generator must be referenced by tag. Everything
+    else in `build.yml` is already pinned by SHA.
   - *Workflow permissions*: read repository contents only. Untick *Allow
     GitHub Actions to create and approve pull requests*.
 - **Environments → New environment** `release`:
@@ -160,13 +162,19 @@ Push, then watch *Actions*. The first run creates the package
 → `myblue` → *Package settings*); new packages can start out private.
 The machine has to be able to read it without logging in.
 
-Then check both signatures from your laptop
-(`brew install cosign slsa-verifier crane`):
+Then check both signatures from your laptop, with cosign, ORAS and the
+`slsa-verifier` from [slsa-framework/verifier](https://github.com/slsa-framework/verifier)
+(v0.1.1 or later; not the older slsa-framework/slsa-verifier of the same
+name). secureblue images ship the last two.
 ```sh
-d=$(crane digest ghcr.io/<you>/myblue:latest)
+d=$(oras resolve ghcr.io/<you>/myblue:latest)
 cosign verify --key cosign.pub ghcr.io/<you>/myblue@$d > /dev/null && echo signature ok
-slsa-verifier verify-image --source-uri github.com/<you>/myblue \
-  --source-branch main ghcr.io/<you>/myblue@$d
+p=$(mktemp -d) && oras pull -o "$p" "ghcr.io/<you>/myblue:${d/:/-}-provenance"
+slsa-verifier build "$p/provenance.intoto.json" --level 3 --require-signatures \
+  --signer 'sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/slsa-framework/actions/\.github/workflows/attest_actions\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+' \
+  --subject "$d" --param expected_source:https://github.com/<you>/myblue \
+  --param expected_branch:main \
+  --param 'trusted_builders:[https://github.com/<you>/myblue/.github/workflows/build.yml@refs/heads/main]'
 ```
 
 ### 6. Move your machine onto the image
@@ -230,8 +238,8 @@ slsa-verifier verify-image --source-uri github.com/<you>/myblue \
    your Mullvad login and settings stay. The Mullvad repo that
    `ujust install-vpn` turned on is no longer needed:
    `run0 sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/mullvad.repo`.
-5. **Test the update check:** `run0 /usr/libexec/secureblue/verify-provenance.sh`
-   should exit 0, print a `PASSED` line from slsa-verifier, a `Good "git"
+5. **Test the update check:** `run0 /usr/libexec/secureblue/verify-provenance`
+   should exit 0, print slsa-verifier's verification result, a `Good "git"
    signature` line for your key, `built from <commit>, signed by an
    allowed key` and `approved sha256:… for this machine` (the first time
    also `created this machine's approval key`). Without `run0`, it hands
@@ -461,7 +469,9 @@ has a small allowlist for GitHub, GHCR and Sigstore; the build follows
 secureblue's endpoint allowlist with GitHub's API and Proton added. A new
 dependency or changed mirror may require an allowlist update. Investigate
 the blocked endpoint rather than switching to audit mode or allowing all
-outbound traffic. The SLSA generator remains upstream's reusable workflow.
+outbound traffic. The SLSA attester and generator remain upstream's
+reusable workflows. The job that pushes the attester's statement also
+allows GitHub's artifact storage, where it downloads the statement from.
 
 Unlike secureblue, both steps set `disable-telemetry: true`, so the runner's
 network and process data isn't sent to StepSecurity. There's no StepSecurity
@@ -601,6 +611,12 @@ they do not alter the host's hardening or start agents.
   scripts from a reviewed commit. Also follow their Harden-Runner pin and
   build endpoint allowlist. Dependabot handles the action version, not the
   endpoint list or vendored scripts.
+- **The older SLSA v0.2 provenance:** in November 2026 secureblue moved to
+  SLSA v1 provenance, `oras` and a new `slsa-verifier`, and renamed
+  `verify-provenance.sh` to `verify-provenance`; this repo followed. Images
+  from before that check SLSA v0.2 provenance, so `build.yml` still
+  publishes it (`old-provenance`) for the update from such an image. Drop
+  that job once no deployment you might boot is from before the switch.
 - **`ujust audit-secureblue`** reports a system-wide override at
   `/etc/containers/policy.json` (INFO) and warns about the two `docker.io`
   scopes, `quay.io/ramalama/ramalama`, `ghcr.io/ggml-org/llama.cpp` and
@@ -608,7 +624,7 @@ they do not alter the host's hardening or start agents.
   secureblue ships its policy in `/usr/share/containers`, and the build
   starts `/etc`'s from it and adds this image's rules. Don't run the
   `rm` the audit suggests: podman would fall back to secureblue's policy,
-  which has no entry for this image, and `verify-provenance.sh` would stop
+  which has no entry for this image, and `verify-provenance` would stop
   approving updates.
 
 ## Limits
@@ -635,7 +651,7 @@ they do not alter the host's hardening or start agents.
   3. Once it's built, check it as in step 5 of the setup (`d` is its
      digest), then approve it on each machine with a copy of
      `allowed_signers` that has the new key:
-     `run0 /usr/libexec/secureblue/verify-provenance.sh --bootstrap <that file> $d`,
+     `run0 /usr/libexec/secureblue/verify-provenance --bootstrap <that file> $d`,
      followed by `rpm-ostree upgrade`.
 
   A backup signing key in the file avoids this.

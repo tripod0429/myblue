@@ -17,7 +17,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 scope="ghcr.io/$OWNER/$NAME"
 key="/etc/pki/containers/$NAME.pub"
 policy=/etc/containers/policy.json
-# This machine's approvals, as in verify-provenance.sh.
+# This machine's approvals, as in verify-provenance.
 approval_key=/etc/pki/containers/$NAME-approval.gpg
 signatures=/var/lib/containers/sigstore
 
@@ -56,8 +56,8 @@ echo "Trusted $scope. Old policy saved as $policy.bak."
 # by a key in this checkout's allowed_signers) and approve it, then rebase
 # onto `latest`, which updates follow. rpm-ostree refuses anything else the
 # tag might point to by then: it has no approval.
-digest=$(crane digest "$scope:latest")
-"$repo/files/system/usr/libexec/secureblue/verify-provenance.sh" --bootstrap \
+digest=$(skopeo inspect --no-tags --format '{{.Digest}}' "docker://$scope:latest")
+"$repo/files/system/usr/libexec/secureblue/verify-provenance" --bootstrap \
   "$repo/files/system/usr/share/myblue/allowed_signers" "$digest"
 rpm-ostree rebase "ostree-image-signed:docker://$scope:latest"
 echo "Next: systemctl reboot"

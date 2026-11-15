@@ -424,7 +424,7 @@ aslisted() {
   done
 }
 
-# verify-provenance.sh installs an image only if its commit is signed by a
+# verify-provenance installs an image only if its commit is signed by a
 # key in this file. Only the installed image's copy counts.
 AS=/usr/share/myblue/allowed_signers
 section "myblue updates  ->  commits signed by a key in $AS"

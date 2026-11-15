@@ -1,12 +1,12 @@
 #!/usr/bin/bash
 # Runs at image build time, after the `signing` module. Next to the cosign
 # signature that module requires, policy.json also requires this machine's
-# approval: a signature verify-provenance.sh makes with the machine's own
+# approval: a signature verify-provenance makes with the machine's own
 # key once an image has passed its checks, stored locally (registries.d
 # `lookaside`). bootstrap/trust-myblue.sh writes the same entries.
 set -euo pipefail
 
-# Same as in verify-provenance.sh.
+# Same as in verify-provenance.
 readonly IMAGE=ghcr.io/tripod0429/myblue
 readonly KEYRING=/etc/pki/containers/myblue-approval.gpg
 readonly SIGNATURES=/var/lib/containers/sigstore

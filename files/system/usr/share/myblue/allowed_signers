@@ -1,5 +1,5 @@
 # Keys whose commits this machine will install images from (git's
-# gpg.ssh.allowedSignersFile format). verify-provenance.sh checks that the
+# gpg.ssh.allowedSignersFile format). verify-provenance checks that the
 # commit an image was built from is signed by one of them. A new key only
 # counts once an image listing it, built from a commit signed by a key
 # already here, is installed.

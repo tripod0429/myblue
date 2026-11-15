@@ -1,11 +1,12 @@
 #!/usr/bin/bash
 # Replaces secureblue's script of the same name, which only accepts
 # ghcr.io/secureblue images. secureblue runs this before automatic updates
-# (rpm-ostreed-automatic.service) and before `ujust update-system`; a
-# non-zero exit blocks the update.
+# (rpm-ostreed-automatic.service, bootc-upgrade.service, upgrade-on-boot)
+# and before `ujust update-system`; a non-zero exit blocks the update.
+# (Until November 2026 secureblue called it verify-provenance.sh.)
 #
 # It checks that the image `latest` points to was built by this repo's
-# GitHub workflow from the main branch, using the SLSA provenance the
+# GitHub workflow from the main branch, using the SLSA v1 provenance the
 # build publishes next to the image, and that the commit it was built
 # from is signed by a key in ALLOWED_SIGNERS. GitHub vouches for the
 # provenance, so the signature is what someone who controls the GitHub
@@ -19,8 +20,8 @@
 # the check, or a plain `rpm-ostree upgrade`, can't bring in an image this
 # script didn't check.
 #
-#   verify-provenance.sh                              before an update
-#   verify-provenance.sh --bootstrap SIGNERS DIGEST   first install, from
+#   verify-provenance                              before an update
+#   verify-provenance --bootstrap SIGNERS DIGEST   first install, from
 #       bootstrap/trust-myblue.sh, or recovery: checks DIGEST against the
 #       SIGNERS file you give it, without requiring a myblue boot or an
 #       installed source-history floor (an explicit root recovery operation)
@@ -31,6 +32,7 @@ set -euo pipefail
 readonly IMAGE=ghcr.io/tripod0429/myblue
 readonly SOURCE=github.com/tripod0429/myblue
 readonly BRANCH=main
+readonly WORKFLOW=.github/workflows/build.yml
 readonly SOURCE_COMMIT_FILE=/usr/share/myblue/source-commit
 ALLOWED_SIGNERS=/usr/share/myblue/allowed_signers
 
@@ -108,20 +110,39 @@ if (( !bootstrap )); then
     echo "verify-provenance: booted from '$ref', expected 'ostree-image-signed:docker://$IMAGE:latest'" >&2
     exit 1
   fi
-  digest=$(crane digest "$IMAGE:latest")
+  # The digest of the image index `latest` names, the one the build pushed.
+  digest=$(skopeo inspect --no-tags --format '{{.Digest}}' "docker://$IMAGE:latest")
 fi
 if [[ ! $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
   echo "verify-provenance: not a digest: '$digest'" >&2
   exit 1
 fi
-provenance=$(slsa-verifier verify-image \
-  --source-uri "$SOURCE" \
-  --source-branch "$BRANCH" \
-  --print-provenance \
-  "$IMAGE@$digest")
+work=$(mktemp -d)
+trap 'rm -rf "$work"; GNUPGHOME=$GNUPG gpgconf --kill gpg-agent 2> /dev/null || true' EXIT
 
-# SLSA v0.2 layout, as written by the generator version build.yml pins.
-commit=$(jq -r '.predicate.invocation.configSource.digest.sha1' <<<"$provenance")
+# The build pushes the provenance next to the image, as secureblue does:
+# a Sigstore bundle at <image>:sha256-<digest>-provenance. slsa-verifier
+# checks it was signed by the SLSA attester's workflow for exactly this
+# digest, built by this repo's workflow from BRANCH. Its own directory, so
+# nothing it contains can stand in for the files below.
+mkdir "$work/provenance"
+oras pull -o "$work/provenance" "$IMAGE:${digest/:/-}-provenance"
+slsa-verifier build "$work/provenance/provenance.intoto.json" \
+  --level 3 \
+  --require-signatures \
+  --signer 'sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/slsa-framework/actions/\.github/workflows/attest_actions\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+' \
+  --subject "$digest" \
+  --param "expected_source:https://$SOURCE" \
+  --param "expected_branch:$BRANCH" \
+  --param "trusted_builders:[https://$SOURCE/$WORKFLOW@refs/heads/$BRANCH]"
+
+# The commit, from the statement slsa-verifier just checked: the one
+# source dependency from this repo's BRANCH, none other.
+commit=$(jq -r --arg uri "git+https://$SOURCE@refs/heads/$BRANCH" '
+    [.dsseEnvelope.payload | @base64d | fromjson
+     | .predicate.buildDefinition.resolvedDependencies[]?
+     | select(.uri == $uri) | .digest.gitCommit]
+    | if length == 1 then .[0] else empty end' "$work/provenance/provenance.intoto.json")
 if [[ ! $commit =~ ^[0-9a-f]{40}$ ]]; then
   echo "verify-provenance: no source commit in the provenance" >&2
   exit 1
@@ -132,8 +153,6 @@ fi
 # on this machine, and disable the OpenPGP and X.509 verifiers, so only an
 # SSH signature by a key in ALLOWED_SIGNERS passes. GitHub's own signature
 # on merges made in its web UI is OpenPGP and doesn't count.
-work=$(mktemp -d)
-trap 'rm -rf "$work"; GNUPGHOME=$GNUPG gpgconf --kill gpg-agent 2> /dev/null || true' EXIT
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 git init -q --bare "$work/repo.git"
 # Fetch ancestry, not just the tip: a shallow fetch cannot prove descent

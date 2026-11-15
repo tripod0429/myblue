@@ -15,8 +15,25 @@ ROOT = Path(__file__).resolve().parents[1]
 IMAGE = "ghcr.io/tripod0429/myblue"
 DIGEST = "sha256:" + "1" * 64
 CHILD_DIGEST = "sha256:" + "2" * 64
+# How verify-provenance looks up the digest `latest` names.
+LOOKUP = ["skopeo", "inspect", "--no-tags", "--format", "{{.Digest}}", f"docker://{IMAGE}:latest"]
+# Where the provenance must come from, and what slsa-verifier must require of it.
+SOURCE = "git+https://github.com/tripod0429/myblue@refs/heads/main"
+VERIFIER_CHECKS = [
+    "--level", "3",
+    "--require-signatures",
+    "--signer", "sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::"
+                r"https://github\.com/slsa-framework/actions/\.github/workflows/attest_actions\.yml"
+                r"@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+",
+    "--subject", DIGEST,
+    "--param", "expected_source:https://github.com/tripod0429/myblue",
+    "--param", "expected_branch:main",
+    "--param", "trusted_builders:[https://github.com/tripod0429/myblue"
+               "/.github/workflows/build.yml@refs/heads/main]",
+]
 START_COSMIC = 'eval "$(gnome-keyring-daemon --start --components=pkcs11,secrets,ssh)"\n'
 MOCK = textwrap.dedent("""\
+    import base64
     import json
     import os
     from pathlib import Path
@@ -37,11 +54,22 @@ MOCK = textwrap.dedent("""\
     elif name == "rpm-ostree":
         print(json.dumps({"deployments": [{"container-image-reference":
             scenario.get("ref", "ostree-image-signed:docker://ghcr.io/tripod0429/myblue:latest")}]}))
-    elif name == "crane":
-        print(scenario.get("digest", "sha256:" + "1" * 64))
+    elif name == "oras":
+        if args[:2] != ["pull", "-o"]:
+            sys.exit("Unexpected oras command")
+        if scenario.get("pull_exit", 0):
+            sys.exit(scenario["pull_exit"])
+        # A Sigstore bundle, like the attester's; only the statement matters here.
+        dependencies = scenario.get("dependencies", [
+            {"uri": "git+https://github.com/tripod0429/myblue@refs/heads/main",
+             "digest": {"gitCommit": scenario["commit"]}}])
+        statement = {"predicate": {"buildDefinition": {"resolvedDependencies": dependencies}}}
+        payload = base64.b64encode(json.dumps(statement).encode()).decode()
+        Path(args[2], "provenance.intoto.json").write_text(
+            json.dumps({"dsseEnvelope": {"payload": payload}}))
     elif name == "slsa-verifier":
-        print(json.dumps({"predicate": {"invocation": {"configSource": {
-            "digest": {"sha1": scenario["commit"]}}}}}))
+        if args[:1] != ["build"] or scenario.get("old_verifier"):
+            sys.exit("Unexpected slsa-verifier command")
         sys.exit(scenario.get("provenance_exit", 0))
     elif name == "gpg":
         if "--list-secret-keys" in args:
@@ -61,6 +89,8 @@ MOCK = textwrap.dedent("""\
                     {"platform": {"os": "linux", "architecture": "arm64"},
                      "digest": "sha256:" + "3" * 64}]
             print(json.dumps(manifest))
+        elif args[:4] == ["inspect", "--no-tags", "--format", "{{.Digest}}"]:
+            print(scenario.get("digest", "sha256:" + "1" * 64))
         elif args[0] == "standalone-sign":
             if scenario.get("approval_exit", 0):
                 sys.exit(scenario["approval_exit"])
@@ -157,7 +187,7 @@ class ProvenanceTests(unittest.TestCase):
         (registries / "myblue.yaml").write_text(
             f"docker:\n  {IMAGE}:\n    use-sigstore-attachments: true\n"
             f"    lookaside: file://{self.signatures}\n")
-        for name in ("git", "rpm-ostree", "crane", "slsa-verifier", "chmod", "skopeo",
+        for name in ("git", "rpm-ostree", "oras", "slsa-verifier", "chmod", "skopeo",
                      "gpg", "gpgconf", "flock", "systemctl", "journalctl"):
             path = self.bin / name
             path.write_text(f"#!{sys.executable}\n" + MOCK)
@@ -181,7 +211,7 @@ class ProvenanceTests(unittest.TestCase):
         return result, calls
 
     def verify(self, *, bootstrap=False, bootstrap_signers=None, **scenario):
-        script = (ROOT / "files/system/usr/libexec/secureblue/verify-provenance.sh").read_text()
+        script = (ROOT / "files/system/usr/libexec/secureblue/verify-provenance").read_text()
         # Redirect every privileged path to this test's temporary directory.
         # Simulate EUID only in this copy; production exposes no such override.
         replacements = {
@@ -204,7 +234,8 @@ class ProvenanceTests(unittest.TestCase):
         return self.run_script(script, arguments=arguments, **scenario)
 
     def assert_no_approval(self, calls):
-        self.assertFalse(any(call[0] in ("gpg", "skopeo", "flock") for call in calls),
+        self.assertFalse(any(call[0] in ("gpg", "skopeo", "flock") and call != LOOKUP
+                             for call in calls),
                          "Rejected image reached machine approval")
 
     def approval_path(self, digest):
@@ -221,8 +252,12 @@ class ProvenanceTests(unittest.TestCase):
         fetch = next(call for call in calls if call[0] == "git" and "fetch" in call)
         self.assertIn("--no-tags", fetch)
         self.assertFalse(any(arg.startswith("--depth") for arg in fetch))
-        self.assertIn(f"{IMAGE}@{DIGEST}",
-                      next(call for call in calls if call[0] == "slsa-verifier"))
+        self.assertIn(LOOKUP, calls)
+        pull = next(call for call in calls if call[0] == "oras")
+        self.assertEqual(pull[:3] + pull[4:], ["oras", "pull", "-o", f"{IMAGE}:sha256-{'1' * 64}-provenance"])
+        verifier = next(call for call in calls if call[0] == "slsa-verifier")
+        self.assertEqual(verifier, ["slsa-verifier", "build", pull[3] + "/provenance.intoto.json",
+                                    *VERIFIER_CHECKS])
         signature_check = next(i for i, call in enumerate(calls) if "verify-commit" in call)
         ancestry_check = next(i for i, call in enumerate(calls) if "merge-base" in call)
         first_approval = next(i for i, call in enumerate(calls) if call[0] == "flock")
@@ -282,8 +317,26 @@ class ProvenanceTests(unittest.TestCase):
                 self.assertFalse(any(call[0] == "git" for call in calls))
                 self.assert_no_approval(calls)
 
+    def test_commit_comes_only_from_this_repos_branch(self):
+        cases = {
+            "no dependencies": [],
+            "other branch": [{"uri": SOURCE.replace("refs/heads/main", "refs/heads/dev"),
+                              "digest": {"gitCommit": self.new}}],
+            "other repository": [{"uri": SOURCE.replace("tripod0429", "someone-else"),
+                                  "digest": {"gitCommit": self.new}}],
+            "two commits": [{"uri": SOURCE, "digest": {"gitCommit": self.new}},
+                            {"uri": SOURCE, "digest": {"gitCommit": self.installed}}],
+        }
+        for name, dependencies in cases.items():
+            with self.subTest(name):
+                result, calls = self.verify(dependencies=dependencies)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("no source commit in the provenance", result.stderr)
+                self.assertFalse(any(call[0] == "git" for call in calls))
+                self.assert_no_approval(calls)
+
     def test_provenance_or_fetch_failure_is_rejected(self):
-        for scenario in ({"provenance_exit": 1}, {"fetch_exit": 1}):
+        for scenario in ({"pull_exit": 1}, {"provenance_exit": 1}, {"fetch_exit": 1}):
             with self.subTest(scenario=scenario):
                 result, calls = self.verify(**scenario)
                 self.assertNotEqual(result.returncode, 0)
@@ -295,7 +348,7 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(any("verify-commit" in call for call in calls))
         self.assertFalse(any("merge-base" in call for call in calls))
-        self.assertFalse(any(call[0] in ("rpm-ostree", "crane") for call in calls))
+        self.assertFalse(any(call[0] == "rpm-ostree" or call == LOOKUP for call in calls))
         self.assertTrue((self.approval_path(DIGEST) / "signature-1").exists())
 
     def test_bootstrap_still_requires_an_allowed_commit_signature(self):
@@ -467,6 +520,16 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(policy["transports"]["docker"]["quay.io/ramalama/ramalama"],
                          [{"type": "insecureAcceptAnything"}])
         self.assertEqual(json.loads(self.default_policy.read_text()), default)
+
+    def test_build_fails_with_the_old_slsa_verifier(self):
+        script = self.image_setup()
+        original = '{"default":[{"type":"reject"}],"transports":{"docker":{}}}'
+        self.etc_policy.write_text(original)
+        result, calls = self.run_script(script, old_verifier=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("slsa-verifier has no build command", result.stderr)
+        self.assertEqual(self.etc_policy.read_text(), original)
+        self.assertFalse(any(call[0] == "chmod" for call in calls))
 
     def test_build_fails_without_a_policy_to_start_from(self):
         result, _ = self.run_script(self.image_setup())
