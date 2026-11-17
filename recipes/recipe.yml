@@ -34,6 +34,8 @@ modules:
         - emacs
         - ripgrep
         - fd-find
+        # Fedora's racket is the full distribution, with DrRacket.
+        - racket
         # fido2-token, for `ujust audit-security-key`. The image already has
         # its library (libfido2); this is only the command-line tool.
         - fido2-tools
