@@ -1,7 +1,7 @@
 # secureblue package hardening
 
 These scripts are unmodified copies of `files/scripts/` from
-[secureblue commit `ac440c8ecd425782fc589c303bcde6bd4415f599`](https://github.com/secureblue/secureblue/tree/ac440c8ecd425782fc589c303bcde6bd4415f599/files/scripts).
+[secureblue commit `353366bb6d031e66fc565b0b101a8a069f32fcdb`](https://github.com/secureblue/secureblue/tree/353366bb6d031e66fc565b0b101a8a069f32fcdb/files/scripts).
 Their SPDX copyright and license notices are retained; `LICENSE` is the
 upstream Apache 2.0 license.
 

@@ -144,7 +144,7 @@ jobs:
       image: ${{ steps.recipe.outputs.image }}
       digest: ${{ steps.digest.outputs.digest }}
     steps:
-      # secureblue's allowlist at ac440c8ecd425782fc589c303bcde6bd4415f599
+      # secureblue's allowlist at 353366bb6d031e66fc565b0b101a8a069f32fcdb
       # (.github/workflows/runner-allowed-endpoints.txt there), with GitHub's
       # API, Proton and Mullvad added for this build. In order:
       # Ubuntu packages; GitHub Actions, release binaries and verification
@@ -223,6 +223,7 @@ jobs:
             ix-denver.mm.fcix.net:443
             lesnet.mm.fcix.net:443
             lolhost.mm.fcix.net:443
+            mirror.acm.umn.edu:443
             mirror.cpsc.ucalgary.ca:443
             mirror.csclub.uwaterloo.ca:443
             mirror.cs.princeton.edu:443
