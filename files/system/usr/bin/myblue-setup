@@ -29,7 +29,6 @@ step flatpak-permissions-lockdown
 step harden-flatpak
 printf "Mullvad's DNS doesn't work with Unbound, secureblue's other resolver.\n"
 step dns-selector resolver resolved
-step install-steam
 
 if [[ -e /etc/NetworkManager/conf.d/rand_mac.conf ]]; then
   printf 'MAC randomization configuration already exists; not toggling it.\n\n'
